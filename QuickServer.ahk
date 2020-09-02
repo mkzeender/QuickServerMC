@@ -4,18 +4,31 @@ FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 #persistent
 global defaultRAM := 2
-global ServerList := GetServerList()
+
 OnExit("ExitFunc")
 OnError("ErrorFunc")
-FileInstall, 7za.exe, 7za.exe
-FileInstall, ngrok.exe, ngrok.exe
-FileInstall, quickserveruhc.zip, quickserveruhc.zip
+If not FileExist("ngrok.exe") {
+	If A_Is64bitOS {
+		URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip, ngrok.zip
+	}
+	Else {
+		URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-386.zip, ngrok.zip
+	}
+	try runwait, tar.exe -x -f ngrok.zip
+}
+If not FileExist("quickserveruhc.zip") {
+	URLDownloadToFile, https://github.com/mkzeender/QuickServerMC/raw/master/quickserveruhc.zip,quickserveruhc.zip
+}
 #singleinstance, Off
 
 
 
 
-Getngrok_enable()
+;---------------------------  AUTORUN ----------------------------------
+{
+
+global ServerList := GetServerList()
+global ngrok_enable := Getngrok_enable()
 
 If A_IsCompiled and WinExist("ahk_exe QuickServer.exe")
 {
@@ -28,18 +41,29 @@ Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
 	ExitApp
 }
 
-
-
-ChooseServerWindow() ;autorun
+ChooseServerWindow()
 return
-
-ReInstall() {
-	InputBox, v, Reinstall QuickServer, After reinstalling`, you will need to update/upgrade each of your servers (go to: server settings>update/upgrade server). Type confirm below to confirm
-	If not ErrorLevel and (v = "confirm")
-	{
-		FileRemoveDir, BuildTools, true
-	}
 }
+
+ExitFunc() {
+	IniWrite, %ServerList%, QuickServer.ini, Servers, ServerList
+}
+
+ErrorFunc(exception) {
+	FormatTime, t,, MM/dd/yyyy hh:mm:ss tt
+	ErrorMsg := "[" . t . "] Something went wrong because I am dumb. Error message: " . exception.Message
+	msgbox,0x10,, %ErrorMsg%
+	FileAppend, %ErrorMsg%`n, QuickServer.log
+	return true
+}
+
+
+
+
+;----------------------------------Main GUI (SelectServer) Window-------------------------------- 
+{
+;----------ngrok----------------
+{
 
 ngrok_run() {
 	global
@@ -51,7 +75,7 @@ ngroksetup() {
 	global
 	gui, ngroksetup:new
 	gui, font, s10
-	gui, add, Link,, Ngrok is a free service to open your server to the public. Set up an ngrok account <a href="https://ngrok.com/"> here </a>.`n`nAlternatively, you can use <a href="https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"> Port Forwarding </a> for a permanent IP address (or website!).`n`nAfter creating your ngrok account, enter your account AuthToken below.`nYour server's link will be labeled as "forwarding" and will look something like X.tcp.ngrok.io:XXXXX (ignore the "tcp://")
+	gui, add, Link,, Ngrok is a free service to open your server to the public. Set up an ngrok account <a href="https://ngrok.com/"> here </a>.`n`nAlternatively, you can use <a href="https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"> Port Forwarding </a> for a permanent IP address (or website!).`n`nAfter creating your ngrok account, enter your account AuthToken below.`nYour server's link will be labeled as "forwarding" and will look something like 3.tcp.ngrok.io:12345 (ignore the "tcp://")
 	gui, add, Edit, vngrok_authtoken w150
 	gui, add, CheckBox, vngrok_enable Checked%ngrok_enable%, Use ngrok to connect to your server
 	gui, font, s12
@@ -62,32 +86,30 @@ ngroksetup() {
 Button_ngrok_OK() {
 	global
 	gui, ngroksetup:submit
-	try FileDelete, ngrok_enable.txt
 	run, ngrok authtoken %ngrok_authtoken%,,hide
-	FileAppend, %ngrok_enable%, ngrok_enable.txt
+	IniWrite, %ngrok_enable%, QuickServer.ini, ngrok, ngrok_enable
 	gui, ngroksetup:destroy
 	ngrok_run()
-}
-
-Getngrok_enable() {
-	global
-	try FileRead, ngrok_enable, ngrok_enable.txt
-	catch {
-		ngrok_enable := true
+	If ngrok_enable and not FileExist("ngrok.exe") {
+		Throw Exception("Ngrok installation failed. Connect to the internet and restart QuickServer to try again")
 	}
 }
 
+Getngrok_enable() {
+	return IniRead("QuickServer.ini", "ngrok", "ngrok_enable", true)
+}
 
+}
 
 ChooseServerWindow() {
-	global ChosenPath
+	global ChosenNumber
 	gui, MainGUI:new
 	gui, Font, s13
 	gui, add, Button, gButton_Main_NewServer, New Server
 	gui, add, text,,`n Select Server:
-	gui, add, DropDownList, vChosenPath Choose1, % StrReplace(ServerList,"|",,,1)
+	gui, add, DropDownList, vChosenNumber Choose1 altsubmit, % ExtractServerNames()
 	gui, add, Button, gSelectServer_Run, Run Server
-	gui, add, Button, gSelectServer_Settings, Change Server Settings
+	gui, add, Button, gSelectServer_Settings, Edit Server
 	gui, add, Button, gSelectServer_Delete, Delete Server
 	gui, add, Link, gngroksetup, <a> How do my friends and I connect to my server? </a>`n
 	gui, add, Link, gReInstall, <a>Help! Every time I try to create a new server it fails</a>
@@ -96,108 +118,102 @@ ChooseServerWindow() {
 
 
 
+; Main window buttons
+{
+
 Button_Main_NewServer() {
-	global ChosenPath
-	InputBox, ChosenPath, New Server, Enter a new name for your server.`nThe name cannot have special symbols.
-	If Errorlevel {
-		return
-	}
-	If not TestLegalPath(ChosenPath) or not ChosenPath {
-		msgbox,0x10,QuickServer, Name may only include letters`, numbers`, and spaces.
-		return
-	}
-	CreatedServer := new Server(ChosenPath)
+
+	CreatedServer := new Server("Server")
 	If not CreatedServer.create()
 	{
 		return
 	}
 	gui,MainGUI:destroy
-	ServerList = %ServerList%|%ChosenPath%
+	ServerList := ServerList . "|" . CreatedServer.uniquename
 	ChooseServerWindow()
 	CreatedServer.settings()
 }
 
 SelectServer_Run() {
-	Global ChosenPath
 	gui,MainGui:submit,nohide
-	If not ChosenPath
-		return
-	SelectedServer := new Server(ChosenPath)
+	SelectedServer := new Server(GetChosenUniquename())
 	SelectedServer.Start()
 }
 
 SelectServer_Settings() {
-	Global ChosenPath
 	gui,MainGUI:submit,nohide
-	If not ChosenPath
-		return
-	SelectedServer := new Server(ChosenPath)
+	SelectedServer := new Server(GetChosenUniquename())
 	SelectedServer.Settings()
 }
 
 SelectServer_Delete() {
-	global ChosenPath
 	gui,MainGUI:submit,nohide
-	msgbox,0x134,QuickServer,Are you sure you want to delete %ChosenPath%? You may be able to recover the world folder from the recycle bin.
+	SelectedServer := GetChosenUniquename()
+	msgbox,0x134,QuickServer,Are you sure you want to delete %SelectedServer%? You may be able to recover the world folder from the recycle bin.
 	Ifmsgbox, Yes
 	{
-		FileRecycle, %ChosenPath%
-		replacetxt = |%ChosenPath%
+		FileRecycle, %SelectedServer%
+		replacetxt = |%SelectedServer%
 		ServerList := StrReplace(ServerList, replacetxt)
 	}
 	gui,MainGUI:destroy
 	ChooseServerWindow()
 }
 
-return
-MainGUIGUIClose:
-	ExitApp
 
-TestLegalPath(testpath) {
-	try FileCreateDir, %testpath%
-	catch {
-		return false
+ReInstall() {
+	InputBox, v, Reset and Reinstall QuickServer, This will reset the installation of Minecraft Server. It will NOT delete your servers`, but after resetting`, you will need to update/upgrade each of your servers before running them (go to: server settings>update/upgrade server). Type "confirm" below to confirm
+	If not ErrorLevel and (v = "confirm")
+	{
+		FileRemoveDir, BuildTools, true
 	}
-	try FileRemoveDir, %testpath%, false
-	return true
 }
+
+
+MainGUIGUIClose() {
+	ExitApp
+}
+
+}
+
+
+ExtractServerNames() {
+	global ServerListArray := StrSplit(StrReplace(ServerList,"|",,,1), "|")
+	For index, uniquename in ServerListArray
+	{
+		NamesList := NamesList . "|" . IniRead(uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled Server")
+	}
+	return StrReplace(NamesList,"|",,,1)
+}
+
+GetChosenUniquename() {
+	Global ServerListArray
+	Global ChosenNumber
+	return ServerListArray[ChosenNumber]
+}
+
 
 GetServerList() {
-	FileRead, v, ServerList.txt
-	return v
+	return IniRead("QuickServer.ini", "Servers", "ServerList", A_Space)
 }
 
 
 
-
-
-
-
-ExitFunc() {
-	try FileDelete, ServerList.txt
-	FileAppend, %ServerList%, ServerList.txt
 }
-
-ErrorFunc(exception) {
-	FormatTime, t,, MM/dd/yyyy hh:mm:ss tt
-	ErrorMsg := "[" . t . "] Something went wrong because I am dumb: " . exception.Message
-	msgbox,0x10,, %ErrorMsg%
-	FileAppend, %ErrorMsg%`n, QuickServer.log
-	return true
-}
-
-
-
-
-
-
-
 
 
 
 
 class Server {
-
+	
+	name[] {
+		get {
+			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled Server")
+		}
+		set {
+			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, name
+		}
+	}
 	version[] {
 		get {
 			return, IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "version", "latest") 
@@ -269,6 +285,7 @@ class Server {
 			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, UHC
 			If value
 			{
+				FileCreateDir, % this.uniquename . "\world\datapacks\"
 				FileCopy, quickserveruhc.zip, % this.uniquename . "\world\datapacks\quickserveruhc.zip"
 			}
 			Else
@@ -288,22 +305,25 @@ class Server {
 		this.version := "latest"
 		this.uniquename := UniqueFolderCreate(this.uniquename)
 		if not this.uniquename
+			throw Exception("Missing server", -1)
+		this.name := "New Server"
+		if not this.Rename()
 			return false
 		If not eulaAgree(this.uniquename)
 			return false
 		this.UpdateThisServer()
 		this.props := new properties(this.uniquename . "\server.properties")
+		this.props.setKey("motd", this.name)
 		this.RAM := defaultRAM
 		return true
 	}
-	
 	
 	start() {
 		RAM := this.RAM
 		JarFile := this.JarFile
 		uniquename := this.uniquename
 		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui
-		RunTer(cmd, uniquename, uniquename)
+		RunTer(cmd, this.name, uniquename)
 		ngrok_run()
 	}
 	
@@ -321,6 +341,7 @@ class Server {
 			this.props.setKey("pvp", String(pvp))
 			this.RAM := RAM
 			this.difficulty := difficulty
+			gui, %settingsname%:destroy
 			return
 		}
 		
@@ -336,13 +357,15 @@ class Server {
 		gui, font, s10
 		gui, add, Button, vs_Start, Start Server!
 		guicontrol, +g, s_Start, %btn_func%
+		gui, add, Button, vs_Rename, Rename Server
+		guicontrol, +g, s_Rename, %btn_func%
 		gui, add, text, vs_version, % "Currently running " . this.version . ". press the button below to either update the current version (i.e. if the server says it is out of date)`nor upgrade the server to a newer version of minecraft"
 		gui, add, Button, vs_Update, Change version or update to latest build
 		guicontrol, +g, s_Update, %btn_func%
 		gui, add, Button, vs_Backup, Create a backup of this server
 		guicontrol, +g, s_Backup, %btn_func%
 		
-		gui, add, text,x100 y150, Server Settings`n
+		gui, add, text,x100 y150,`n
 		
 		
 		gui, add, text,, Server Description (appears on Multiplayer menu)
@@ -384,6 +407,10 @@ class Server {
 		gui, show, Autosize Center
 	}
 	
+	Save() {
+		this.settings(true) ;saves the settings onto the disk
+	}
+	
 	UpdateThisServer() {
 		InputBox, newversion, Update or Select Version, Enter the desired version(example: 1.16.1).`n`nType "latest" to use the latest version.,,,,,,,, % this.version
 		If not Errorlevel {
@@ -400,8 +427,16 @@ class Server {
 		FileSelectFile, v, S16, %backup_folder%.zip, Save Backup, Zip Archives (*.zip)
 		If not Errorlevel
 		{
-			Run, 7za.exe a %v% %backup_folder%,,hide
+			Run, tar -a -c -f %v% %backup_folder%,,hide
 		}
+	}
+	
+	Rename() {
+		InputBox, NewName, QuickServer, Enter a new name for your server.,,,,,,,, % this.name
+		If Errorlevel
+			return false
+		this.name := NewName
+		return true
 	}
 	
 }
@@ -410,31 +445,26 @@ SettingsButtonPush(byref this, byref buttonname, settingsname) {
 	gui, %settingsname%:default
 	gui, submit
 	buttonname := A_GuiControl
+	this.save()
 	if (buttonname = "s_Update") {
-		gui, destroy
-		this.save()
 		this.UpdateThisServer()
 		this.Settings()
 	}
 	Else if (buttonname = "s_Start") {
-		this.Settings(true)		;flushes settings
-		gui, destroy
-		this.save()
 		this.Start()
-	}
-	Else if (buttonname = "s_Save") {
-		this.Settings(true)		;flushes settings
-		gui, destroy
-		this.save()
 	}
 	Else if (buttonname = "s_OpenFolder") {
 		openfolder := this.uniquename
 		run, explore %openfolder%
 	}
 	Else if (buttonname = "s_Backup") {
-		this.Settings(true)
-		this.save()
 		this.backup()
+	}
+	Else if (buttonname = "s_Rename") {
+		this.Rename()
+		gui, MainGUI:destroy
+		ChooseServerWindow()
+		this.settings()
 	}
 }
 
@@ -449,6 +479,7 @@ class properties {
 
 	GetKey(key) {
 			FileRead, completeproperties, % this.FilePath
+			completeproperties := "`r`n" . completeproperties
 			startwkey := Substr(completeproperties, Instr(completeproperties, "`n" . key . "="))
 			split := StrSplit(startwkey, ["=" , "`r`n"])
 			value := split[2]
@@ -566,6 +597,7 @@ UpdateServer(version := "latest") {
 	}
 	try {
 		runwait, %comspec% /c java -jar BuildTools.jar --rev %version%, %A_AppData%\.QuickServer\BuildTools
+		
 	}
 	catch {
 		msgbox, 0x15, QuickServer error, Install failed. Try reinstalling Java at https://java.com/en/download/
@@ -580,8 +612,7 @@ UpdateServer(version := "latest") {
 }
 
 
-BuildTools_getServerFile(version)
-{
+BuildTools_getServerFile(version) {
 	If not FileExist(A_AppData "\.QuickServer\BuildTools\BuildTools.log.txt")
 	{
 		return {confirmed: false}
@@ -638,20 +669,6 @@ IniRead(FileName, Section, Key, Default := "ERROR") {
 	IniRead, v, % FileName, % Section, % Key, % Default
 	return v
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
