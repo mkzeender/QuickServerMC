@@ -28,6 +28,7 @@ Progress, 30
 runwait, tar.exe -x -f QuickServerMC-master.zip,,hide
 If not FileExist("QuickServer.ahk") {
 	Progress, hide
+	FileDelete, build.txt
 	msgbox,0x10,, Install Failed. Connect to the internet and try again.
 	ExitApp
 }
@@ -56,6 +57,7 @@ Progress, 95
 
 If not FileExist("QuickServer.ahk") {
 	Progress, hide
+	FileDelete, build.txt
 	msgbox,0x10,, Install Failed. Connect to the internet and try again.
 	ExitApp
 }
