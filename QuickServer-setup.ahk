@@ -25,7 +25,7 @@ Progress, 10
 
 URLDownloadToFile,https://github.com/mkzeender/QuickServerMC/archive/master.zip, QuickServerMC-master.zip
 Progress, 30
-runwait, tar.exe -x -f QuickServerDownload.zip,,hide
+runwait, tar.exe -x -f QuickServerMC-master.zip,,hide
 If not FileExist("QuickServer.ahk") {
 	Progress, hide
 	msgbox,0x10,, Install Failed. Connect to the internet and try again.
