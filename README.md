@@ -16,3 +16,19 @@ Known Problem: I tried creating a new server, and it says it couldn't find the s
 
   Sometimes, the server installer will get messed up the first time you run the program.
   To fix this, press    "Help! Every time I try making a new server it fails"
+
+
+
+
+Third Party Software:
+
+
+Autohotkey
+
+  Copyright (C) 1989, 1991 Free Software Foundation, Inc.
+  51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+
+  Everyone is permitted to copy and distribute verbatim copies
+  of this license document, but changing it is not allowed.
+  
+  
