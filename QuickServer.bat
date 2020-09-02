@@ -7,3 +7,4 @@ curl -z Autohotkey.zip -o Autohotkey.zip https://www.autohotkey.com/download/ahk
 tar -x -f Autohotkey.zip
 )
 start "" Autohotkey.exe QuickServer.ahk
+
