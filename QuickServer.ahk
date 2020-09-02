@@ -30,7 +30,7 @@ If not FileExist("quickserveruhc.zip") {
 global ServerList := GetServerList()
 global ngrok_enable := Getngrok_enable()
 
-If A_IsCompiled and WinExist("ahk_exe QuickServer.exe")
+If WinExist("ahk_exe QuickServer.exe")
 {
 	WinActivate
 	ExitApp
