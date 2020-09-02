@@ -26,6 +26,8 @@ Progress, 10
 URLDownloadToFile,https://github.com/mkzeender/QuickServerMC/archive/master.zip, QuickServerMC-master.zip
 Progress, 30
 runwait, tar.exe -x -f QuickServerMC-master.zip,,hide
+Progress,45
+FileMove, QuickServerMC-master\*.*, %DefaultDir%\*.*, true
 If not FileExist("QuickServer.ahk") {
 	Progress, hide
 	FileDelete, build.txt
@@ -33,8 +35,6 @@ If not FileExist("QuickServer.ahk") {
 	ExitApp
 }
 
-Progress,45
-FileMove, QuickServerMC-master\*.*, %DefaultDir%\*.*, true
 Progress,55
 
 
