@@ -1,32 +1,42 @@
-FileCreateDir, %A_Temp%\QuickServer
-SetWorkingDir, %A_Temp%\QuickServer
 DefaultDir := A_AppData "\.QuickServer\"
 FileCreateDir, %DefaultDir%
+SetWorkingDir, %DefaultDir%
 #notrayicon
 
-Progress,,Downloading...,Installing QuickServer, QuickServer-setup
+try {
+	runwait, java.exe,,hide
+}
+catch {
+	Msgbox, 0x24,, It looks like Java is not installed. Download now?
+	IfMsgbox Yes
+	{
+		If A_Is64bitOS {
+			run,https://javadl.oracle.com/webapps/download/AutoDL?BundleId=242990_a4634525489241b9a9e1aa73d9e118e6
+		}
+		Else {
+			run,https://javadl.oracle.com/webapps/download/AutoDL?BundleId=242988_a4634525489241b9a9e1aa73d9e118e6
+		}
+		Msgbox Once you have installed Java`, please press OK
+	}
+}
+Progress,,Downloading...,Updating QuickServer, QuickServer-setup
 Progress, 0
 Progress, 10
 
-URLDownloadToFile,https://github.com/mkzeender/QuickServerMC/archive/master.zip, QuickServerDownload.zip
+URLDownloadToFile,https://github.com/mkzeender/QuickServerMC/archive/master.zip, QuickServerMC-master.zip
 Progress, 30
 runwait, tar.exe -x -f QuickServerDownload.zip,,hide
-SetWorkingDir, %A_Temp%\QuickServer\QuickServerMC-master
 If not FileExist("QuickServer.ahk") {
 	Progress, hide
 	msgbox,0x10,, Install Failed. Connect to the internet and try again.
 	ExitApp
 }
 
-Progress,50
-FileCopy, %A_ScriptDir%\QuickServer-setup.exe, %DefaultDir%\QuickServer.exe
-FileCopy, QuickServer.ahk, %DefaultDir%\QuickServer.ahk
-FileCopy, QuickServer.ico, %DefaultDir%\QuickServer.ico
-FileCopy, quickserveruhc.zip, %DefaultDir%\quickserveruhc.zip
+Progress,45
+FileMove, QuickServerMC-master\*.*, %DefaultDir%\*.*, true
+Progress,55
 
-Progress,65
 
-SetWorkingDir, %DefaultDir%
 
 If not FileExist("ngrok.exe") {
 	If A_Is64bitOS {
@@ -35,17 +45,26 @@ If not FileExist("ngrok.exe") {
 	Else {
 		URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-386.zip, ngrok.zip
 	}
+	Progress, 80
 	try runwait, tar.exe -x -f ngrok.zip
 }
+Progress, 90
 If not FileExist("quickserveruhc.zip") {
 	URLDownloadToFile, https://github.com/mkzeender/QuickServerMC/raw/master/quickserveruhc.zip,quickserveruhc.zip
 }
 Progress, 95
 
+If not FileExist("QuickServer.ahk") {
+	Progress, hide
+	msgbox,0x10,, Install Failed. Connect to the internet and try again.
+	ExitApp
+}
+
 FileCreateShortcut, %DefaultDir%\QuickServer.exe, %A_Programs%\QuickServer.lnk, %A_WorkingDir%,,Create and manage Minecraft Spigot Servers,%A_WorkingDir%\QuickServer.ico
 
-FileRemoveDir, %A_Temp%\QuickServer, 1
+FileRemoveDir, QuickServerMC-master, 1
+FileDelete, QuickServerMC-master.zip
 
 Progress,100
 
-Run, QuickServer.exe
+try Run, QuickServer.exe
