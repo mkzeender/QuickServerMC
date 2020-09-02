@@ -39,10 +39,12 @@ return
 }
 
 CheckForUpdates() {
-	FileRead, CurrentBuild, build.txt
+	CurrentBuild := IniRead("QuickServer.ini", "version", "build", 0)
+	FileDelete, build.txt
 	URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/build.txt, build.txt
 	FileRead, LatestBuild, build.txt
-	If not (LatestBuild = CurrentBuild) {
+	LatestBuild := StrReplace(StrReplace(LatestBuild,"`n"),"`r")
+	If (LatestBuild > CurrentBuild) {
 		try FileDelete, QuickServer-setup.ahk
 		URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/QuickServer-setup.ahk, QuickServer-setup.ahk
 		If not FileExist("QuickServer-setup.ahk") {
@@ -58,6 +60,7 @@ CheckForUpdates() {
 				fail := true
 			}
 		}
+		IniWrite, %LatestBuild%, QuickServer.ini, version, build
 		If not fail {
 			ExitApp
 		}
