@@ -51,7 +51,12 @@ CheckForUpdates() {
 		try run, QuickServer.exe QuickServer-setup.ahk
 		catch
 		{
-			fail := true
+			try FileCopy, %A_ScriptDir%\QuickServer.exe, QuickServer.exe
+			try run, QuickServer.exe QuickServer-setup.ahk
+			catch
+			{
+				fail := true
+			}
 		}
 		If not fail {
 			ExitApp

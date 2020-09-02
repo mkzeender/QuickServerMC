@@ -47,7 +47,7 @@ If not FileExist("ngrok.exe") {
 		URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-386.zip, ngrok.zip
 	}
 	Progress, 80
-	try runwait, tar.exe -x -f ngrok.zip
+	try runwait, tar.exe -x -f ngrok.zip,,hide
 }
 Progress, 90
 If not FileExist("quickserveruhc.zip") {
