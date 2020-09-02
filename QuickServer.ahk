@@ -5,6 +5,10 @@ SetWorkingDir, %DefaultDir%
 #persistent
 global defaultRAM := 2
 
+If FileExist("QuickServer.ico") {
+	menu, tray, icon, QuickServer.ico
+}
+
 OnExit("ExitFunc")
 OnError("ErrorFunc")
 If not FileExist("ngrok.exe") {
