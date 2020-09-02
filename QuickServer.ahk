@@ -1,35 +1,24 @@
 global DefaultDir := A_AppData "\.QuickServer\"
+global defaultRAM := 2
 #NoTrayIcon
 FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 #persistent
-global defaultRAM := 2
+#singleinstance, Off
 
 If FileExist("QuickServer.ico") {
 	menu, tray, icon, QuickServer.ico
 }
-
-OnExit("ExitFunc")
 OnError("ErrorFunc")
-If not FileExist("ngrok.exe") {
-	If A_Is64bitOS {
-		URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip, ngrok.zip
-	}
-	Else {
-		URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-386.zip, ngrok.zip
-	}
-	try runwait, tar.exe -x -f ngrok.zip
-}
-If not FileExist("quickserveruhc.zip") {
-	URLDownloadToFile, https://github.com/mkzeender/QuickServerMC/raw/master/quickserveruhc.zip,quickserveruhc.zip
-}
-#singleinstance, Off
-
+OnExit("ExitFunc")
+CheckForUpdates()
+AutoRun()
+return
 
 
 
 ;---------------------------  AUTORUN ----------------------------------
-{
+AutoRun() {
 
 global ServerList := GetServerList()
 global ngrok_enable := Getngrok_enable()
@@ -48,6 +37,28 @@ Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
 ChooseServerWindow()
 return
 }
+
+CheckForUpdates() {
+	FileRead, CurrentBuild, build.txt
+	URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/build.txt, build.txt
+	FileRead, LatestBuild, build.txt
+	If not (LatestBuild = CurrentBuild) {
+		try FileDelete, QuickServer-setup.ahk
+		URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/QuickServer-setup.ahk, QuickServer-setup.ahk
+		If not FileExist("QuickServer-setup.ahk") {
+			fail := true
+		}
+		try run, QuickServer.exe QuickServer-setup.ahk
+		catch
+		{
+			fail := true
+		}
+		If not fail {
+			ExitApp
+		}
+	}
+}
+
 
 ExitFunc() {
 	IniWrite, %ServerList%, QuickServer.ini, Servers, ServerList
