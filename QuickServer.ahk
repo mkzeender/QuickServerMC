@@ -1,16 +1,28 @@
 global DefaultDir := A_AppData "\.QuickServer\"
 global defaultRAM := 2
+FontInf := GetFontDefault()
+global FontSmall := FontInf.Small
+global FontNormal := FontInf.Normal
+global FontLarge := FontInf.Large
+
+
+
 #NoTrayIcon
 FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 #persistent
 #singleinstance, Off
 
+global ServerList
+global ngrok_enable := Getngrok_enable()
+
 If FileExist("QuickServer.ico") {
 	menu, tray, icon, QuickServer.ico
 }
 OnError("ErrorFunc")
 OnExit("ExitFunc")
+
+
 CheckForUpdates()
 AutoRun()
 return
@@ -19,9 +31,6 @@ return
 
 ;---------------------------  AUTORUN ----------------------------------
 AutoRun() {
-
-global ServerList := GetServerList()
-global ngrok_enable := Getngrok_enable()
 
 If WinExist("ahk_exe QuickServer.exe")
 {
@@ -69,7 +78,6 @@ CheckForUpdates() {
 
 
 ExitFunc() {
-	IniWrite, %ServerList%, QuickServer.ini, Servers, ServerList
 }
 
 ErrorFunc(exception) {
@@ -83,10 +91,77 @@ ErrorFunc(exception) {
 
 
 
-;----------------------------------Main GUI (SelectServer) Window-------------------------------- 
+{ ;----------------------------------Main GUI (SelectServer) Window-------------------------------- 
+
+
+
+ChooseServerWindow() {
+	global ChosenNumber
+	ServerList := GetServerList()
+	gui,MainGUI:destroy
+	gui, MainGUI:new
+	gui, Font, s%FontLarge%
+	gui, add, Button, gButton_Main_NewServer, New Server
+	gui, add, text,,`n Select Server:
+	gui, add, DropDownList, vChosenNumber Choose1 altsubmit, % ExtractServerNames()
+	gui, add, Button, gSelectServer_Run, Run Server
+	gui, add, Button, gSelectServer_Settings, Edit Server
+	gui, add, Link, gngroksetup, <a> How do my friends and I connect to my server? </a>`n
+	gui, add, Link, gReInstall, <a>Help! Every time I try to create a new server it fails</a>
+	gui, show, Autosize Center
+}
+
+
+
+; Main window buttons
 {
-;----------ngrok----------------
-{
+
+Button_Main_NewServer() {
+
+	CreatedServer := new Server("Server")
+	If not CreatedServer.create()
+	{
+		return
+	}
+	ChooseServerWindow()
+	CreatedServer.settings()
+}
+
+SelectServer_Run() {
+	gui,MainGui:submit,nohide
+	SelectedServer := new Server(GetChosenUniquename())
+	If not SelectedServer.uniquename
+		return false
+	SelectedServer.Start()
+}
+
+SelectServer_Settings() {
+	gui,MainGUI:submit,nohide
+	SelectedServer := new Server(GetChosenUniquename())
+	If not SelectedServer.uniquename
+		return false
+	SelectedServer.Settings()
+	return true
+}
+
+
+ReInstall() {
+	InputBox, v, Reset and Reinstall QuickServer, This will reset the installation of Minecraft Server. It will NOT delete your servers`, but after resetting`, you will need to update/upgrade each of your servers before running them (go to: server settings>update/upgrade server). Type "confirm" below to confirm
+	If not ErrorLevel and (v = "confirm")
+	{
+		FileRemoveDir, BuildTools, true
+	}
+}
+
+
+MainGUIGUIClose() {
+	ExitApp
+}
+
+}
+
+
+{ ;----------ngrok----------------
 
 ngrok_run() {
 	global
@@ -97,11 +172,11 @@ ngrok_run() {
 ngroksetup() {
 	global
 	gui, ngroksetup:new
-	gui, font, s10
+	gui, font, s%FontNormal%
 	gui, add, Link,, Ngrok is a free service to open your server to the public. Set up an ngrok account <a href="https://ngrok.com/"> here </a>.`n`nAlternatively, you can use <a href="https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"> Port Forwarding </a> for a permanent IP address (or website!).`n`nAfter creating your ngrok account, enter your account AuthToken below.`nYour server's link will be labeled as "forwarding" and will look something like 3.tcp.ngrok.io:12345 (ignore the "tcp://")
 	gui, add, Edit, vngrok_authtoken w150
 	gui, add, CheckBox, vngrok_enable Checked%ngrok_enable%, Use ngrok to connect to your server
-	gui, font, s12
+	gui, font, s%FontLarge%
 	gui, add, Button, gButton_ngrok_OK, OK
 	gui, show, Autosize Center
 }
@@ -124,110 +199,39 @@ Getngrok_enable() {
 
 }
 
-ChooseServerWindow() {
-	global ChosenNumber
-	gui, MainGUI:new
-	gui, Font, s13
-	gui, add, Button, gButton_Main_NewServer, New Server
-	gui, add, text,,`n Select Server:
-	gui, add, DropDownList, vChosenNumber Choose1 altsubmit, % ExtractServerNames()
-	gui, add, Button, gSelectServer_Run, Run Server
-	gui, add, Button, gSelectServer_Settings, Edit Server
-	gui, add, Button, gSelectServer_Delete, Delete Server
-	gui, add, Link, gngroksetup, <a> How do my friends and I connect to my server? </a>`n
-	gui, add, Link, gReInstall, <a>Help! Every time I try to create a new server it fails</a>
-	gui, show, Autosize Center
-}
-
-
-
-; Main window buttons
-{
-
-Button_Main_NewServer() {
-
-	CreatedServer := new Server("Server")
-	If not CreatedServer.create()
-	{
-		return
-	}
-	gui,MainGUI:destroy
-	ServerList := ServerList . "|" . CreatedServer.uniquename
-	ChooseServerWindow()
-	CreatedServer.settings()
-}
-
-SelectServer_Run() {
-	gui,MainGui:submit,nohide
-	SelectedServer := new Server(GetChosenUniquename())
-	SelectedServer.Start()
-}
-
-SelectServer_Settings() {
-	gui,MainGUI:submit,nohide
-	SelectedServer := new Server(GetChosenUniquename())
-	SelectedServer.Settings()
-}
-
-SelectServer_Delete() {
-	gui,MainGUI:submit,nohide
-	SelectedServer := GetChosenUniquename()
-	msgbox,0x134,QuickServer,Are you sure you want to delete %SelectedServer%? You may be able to recover the world folder from the recycle bin.
-	Ifmsgbox, Yes
-	{
-		FileRecycle, %SelectedServer%
-		replacetxt = |%SelectedServer%
-		ServerList := StrReplace(ServerList, replacetxt)
-	}
-	gui,MainGUI:destroy
-	ChooseServerWindow()
-}
-
-
-ReInstall() {
-	InputBox, v, Reset and Reinstall QuickServer, This will reset the installation of Minecraft Server. It will NOT delete your servers`, but after resetting`, you will need to update/upgrade each of your servers before running them (go to: server settings>update/upgrade server). Type "confirm" below to confirm
-	If not ErrorLevel and (v = "confirm")
-	{
-		FileRemoveDir, BuildTools, true
-	}
-}
-
-
-MainGUIGUIClose() {
-	ExitApp
-}
-
-}
-
 
 ExtractServerNames() {
-	global ServerListArray := StrSplit(StrReplace(ServerList,"|",,,1), "|")
-	For index, uniquename in ServerListArray
+	For index, uniquename in ServerList
 	{
-		NamesList := NamesList . "|" . IniRead(uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled Server")
+		NamesList := NamesList . "|" . IniRead(uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled server")
 	}
 	return StrReplace(NamesList,"|",,,1)
 }
 
 GetChosenUniquename() {
-	Global ServerListArray
+	Global ServerList
 	Global ChosenNumber
-	return ServerListArray[ChosenNumber]
+	return ServerList[ChosenNumber]
 }
 
 
 GetServerList() {
-	return IniRead("QuickServer.ini", "Servers", "ServerList", A_Space)
+	l_List := []
+	Loop, Files, Server_*, D
+	{
+		If FileExist(A_LoopFileName . "\server.properties")
+			l_List.Push(A_LoopFileName)
+	}
+	return l_List
+}
+
+
 }
 
 
 
-}
 
-
-
-
-class Server {
+class Server { ;-------------------------Class Server-----------------------------------------------
 	
 	name[] {
 		get {
@@ -373,24 +377,32 @@ class Server {
 		buttonname := ""
 		btn_func := Func("SettingsButtonPush").Bind(this, buttonname, settingsname)
 		
-
 		
 		gui, %settingsname%:new
 		gui, +LastFound
-		gui, font, s10
+		gui, font, s%FontLarge%
+		gui, add, Text,, % this.name
+		gui, font, s%FontNormal%
 		gui, add, Button, vs_Start, Start Server!
 		guicontrol, +g, s_Start, %btn_func%
 		gui, add, Button, vs_Rename, Rename Server
 		guicontrol, +g, s_Rename, %btn_func%
-		gui, add, text, vs_version, % "Currently running " . this.version . ". press the button below to either update the current version (i.e. if the server says it is out of date)`nor upgrade the server to a newer version of minecraft"
+		gui, add, text, vs_version, % "Currently running " . this.version . ".`nPress the button below to either update                         `nthe current version to the latest build`n(i.e. if the server says it is out of date)`nor upgrade the server to a newer`nversion of minecraft"
 		gui, add, Button, vs_Update, Change version or update to latest build
 		guicontrol, +g, s_Update, %btn_func%
 		gui, add, Button, vs_Backup, Create a backup of this server
 		guicontrol, +g, s_Backup, %btn_func%
+		gui, add, Button, vs_Duplicate, Duplicate this server
+		guicontrol, +g, s_Duplicate, %btn_func%
+		gui, add, Button, vs_Delete, Delete this server
+		guicontrol, +g, s_Delete, %btn_func%
 		
-		gui, add, text,x100 y150,`n
+		gui, add, text,ym,   
 		
 		
+		
+		gui, add, link, vs_Plugins, <a>Server Plugins</a> -- Easily import and manage plugins!
+		guicontrol, +g, s_Plugins, %btn_func%
 		gui, add, text,, Server Description (appears on Multiplayer menu)
 		gui, add, Edit, vmotd, % this.props.getKey("motd")
 		gui, add, text,, Gamemode
@@ -420,13 +432,15 @@ class Server {
 		gui, add, Edit
 		RAM := this.RAM
 		gui, add, UpDown, vRAM, %RAM%
+		gui, add, Link, vs_Advanced, <a>Advanced Settings</a>`n
+		guicontrol, +g, s_Advanced, %btn_func%
+		gui, add, Link, vs_OpenFolder, <a> Open the Server Folder </a>
+		guicontrol, +g, s_OpenFolder, %btn_func%
 		
 		
 		
 		gui, add, Button, vs_Save, Save Settings
 		guicontrol, +g, s_Save, %btn_func%
-		gui, add, Link, vs_OpenFolder, <a> Open the Server Folder </a> to access more advanced settings, access the "plugins" folder, and access the world folder`n
-		guicontrol, +g, s_OpenFolder, %btn_func%
 		gui, show, Autosize Center
 	}
 	
@@ -462,6 +476,25 @@ class Server {
 		return true
 	}
 	
+	Duplicate() {
+		CreatedServer := new Server
+		CreatedServer.uniquename := UniqueFolderCreate("Server")
+		SplashTextOn,,,Copying Server...
+		CopyFilesAndFolders(this.uniquename . "\*.*", CreatedServer.uniquename, true)
+		SplashTextOff
+		CreatedServer.name := this.name . " (Copy)"
+		CreatedServer.Rename()
+		ChooseServerWindow()
+	}
+	Delete() {
+		
+		msgbox,0x134,Warning, % "WARNING: Are you 100% sure you want to delete " this.name . "? You may be able to recover the world folder from the recycle bin."
+		Ifmsgbox, Yes
+		{
+			FileRecycle, % this.uniquename
+			ChooseServerWindow()			
+		}
+	}
 }
 
 SettingsButtonPush(byref this, byref buttonname, settingsname) {
@@ -469,7 +502,19 @@ SettingsButtonPush(byref this, byref buttonname, settingsname) {
 	gui, submit
 	buttonname := A_GuiControl
 	this.save()
-	if (buttonname = "s_Update") {
+	If (buttonname = "s_Delete") {
+		this.Delete()
+	}
+	If (buttonname = "s_Duplicate") {
+		this.Duplicate()
+	}
+	If (buttonname = "s_Advanced") {
+		run, % "notepad.exe """ . this.uniquename . "\server.properties""",,max
+	}
+	If (buttonname = "s_Plugins") {
+		PluginsGUI(this)
+	}
+	Else if (buttonname = "s_Update") {
 		this.UpdateThisServer()
 		this.Settings()
 	}
@@ -491,6 +536,77 @@ SettingsButtonPush(byref this, byref buttonname, settingsname) {
 	}
 }
 
+{ ;Plugins Window --- PluginsGUI(byref this)
+
+PluginsGUI(byref this) {
+	static
+	msgbox, 0x33, Plugins, It is recommended to backup your world before you modify plugins. Do this now?
+	IfMsgBox, Cancel
+		return "cancel"
+	IfMsgBox, Yes
+		this.backup()
+		
+		
+	Gui, plugins:destroy
+	
+	Gui, plugins:new
+	Gui, font, s%FontNormal%
+	Gui, add, link,, Browse for Plugins at <a href="https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count"> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.
+	Gui, add, Button,vImportButton gPluginsGUI_Import,Import Plugins
+	ImportFunc := Func("PluginsGUI_Import").Bind(this)
+	GuiControl, +g, ImportButton, %ImportFunc%
+	Gui, add, Text,,Plugins on this server (checkmark = enabled):
+	Gui, add, ListView,vpluginlist AltSubmit Checked R15 Sort -Hdr, Name
+	CheckFunc := Func("PluginsGUI_Modify").Bind(this)
+	GuiControl, +g, pluginlist, %CheckFunc%
+	Loop, Files, plugins\*.jar
+	{
+		Options := " "
+		If FileExist(this.uniquename . "\plugins\" . A_LoopFileName)
+			Options .= "Check"
+		LV_Add(Options, StrReplace(A_LoopFileName,".jar"))
+	}
+	Gui, show, autosize center
+	
+	
+}
+
+PluginsGUI_Modify(byref this) {
+	critical
+	Event := ErrorLevel
+	If not (A_GuiEvent == "I")
+		return
+	If InStr(Event, "C", true) {
+		LV_GetText(PluginName, A_EventInfo)
+		FileCreateDir, % this.uniquename . "\plugins"
+		try FileCopy, % "plugins\" . PluginName . ".jar", % this.uniquename . "\plugins\" . PluginName . ".jar"
+	}
+	Else If InStr(Event, "c", true) {
+		LV_GetText(PluginName, A_EventInfo)
+		FileDelete, % this.uniquename . "\plugins\" . PluginName . ".jar"
+	}
+	critical, off
+}
+
+PluginsGUI_Import(byref this) {
+	FileCreateDir, plugins
+	FileCreateDir, % this.uniquename . "\plugins"
+	FileSelectFile, FileList,M 1,,Import Plugins,Spigot Plugins (*.jar)
+	If ErrorLevel
+		return
+	Loop, Parse, FileList, `n
+	{
+		if (A_Index = 1) {
+			Container := A_LoopField
+			continue
+		}
+		LV_Add("Check",StrReplace(A_LoopField,".jar"))
+		FileCopy, % Container . "\" . A_LoopField, % "plugins\" . A_LoopField
+		try FileCopy, % "plugins\" . A_LoopField, % this.uniquename . "\plugins\" . A_LoopField
+	}
+}
+
+}
 
 class properties {
 		
@@ -547,12 +663,12 @@ String(value) {
 }
 
 UniqueFolderCreate(DesiredName) {
-	If not FileExist(DesiredName) {
-		try FileCreateDir, %DesiredName%
+	If not FileExist(DesiredName . "_1") {
+		try FileCreateDir, %DesiredName%_1
 		catch {
 			return false
 		}
-		return DesiredName
+		return DesiredName . "_1"
 	}
 	loop {
 		attempt := 1 + A_Index
@@ -568,7 +684,7 @@ eulaAgree(ServerFolder) {
 	static EULAIAgree
 	global eulaAgree_finishEULA
 	gui, eulaAgree:new,,QuickServer
-	gui, font, s10
+	gui, font, s%FontNormal%
 	gui, add, link,, Please read and agree to the <a href="https://account.mojang.com/documents/minecraft_eula">Minecraft EULA</a>
 	gui, add, text,,   
 	gui, add, checkbox, vEULAIAgree geulaAgree_changeaccept, I agree to the Minecraft EULA
@@ -693,7 +809,23 @@ IniRead(FileName, Section, Key, Default := "ERROR") {
 	return v
 }
 
+IniWrite(Value, FileName, Section, Key) {
+	IniWrite, % Value, % FileName, % Section, % Key
+}
 
+GetFontDefault() {
+	If (A_ScreenWidth > A_ScreenHeight) {
+		ScreenSize := A_ScreenHeight
+	}
+	Else {
+		ScreenSize := A_ScreenWidth
+	}
+	v := {}
+	v.Small := Round(ScreenSize * 8 / 1080)
+	v.Normal := Round(ScreenSize * 10 / 1080)
+	v.Large := Round(ScreenSize * 13 / 1080)
+	return v
+}
 
 
 
@@ -734,7 +866,6 @@ server-port=25565
 debug=false
 server-ip=
 spawn-npcs=true
-blogliifj=yay
 allow-flight=false
 level-name=world
 view-distance=10
@@ -759,19 +890,8 @@ msb(txt) {
 	msgbox,0,, %txt%
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
 WinBlur(Opacity := 0, BackgroundColor := 0x000000, WinTitle := "", Enable := true) {
+
 	TargetWinHwnd := WinExist(WinTitle)
 	If not TargetWinHwnd {
 		return, false
@@ -819,4 +939,22 @@ WinBlur(Opacity := 0, BackgroundColor := 0x000000, WinTitle := "", Enable := tru
     return true
 	
 	
-	}
+}
+
+CopyFilesAndFolders(SourcePattern, DestinationFolder, DoOverwrite = false) {
+; Copies all files and folders matching SourcePattern into the folder named DestinationFolder and
+; returns the number of files/folders that could not be copied.
+
+    ; First copy all the files (but not the folders):
+    FileCopy, %SourcePattern%, %DestinationFolder%, %DoOverwrite%
+    ErrorCount := ErrorLevel
+    ; Now copy all the folders:
+    Loop, %SourcePattern%, 2  ; 2 means "retrieve folders only".
+    {
+        FileCopyDir, %A_LoopFileFullPath%, %DestinationFolder%\%A_LoopFileName%, %DoOverwrite%
+        ErrorCount += ErrorLevel
+        if ErrorLevel  ; Report each problem folder by name.
+            MsgBox Could not copy %A_LoopFileFullPath% into %DestinationFolder%.
+    }
+    return ErrorCount
+}
