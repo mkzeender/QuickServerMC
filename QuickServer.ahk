@@ -1,17 +1,29 @@
-global DefaultDir := A_AppData "\.QuickServer\"
+;-------- Quick Modifications --------------
+
+global DefaultDir := A_AppData "\.QuickServer"
+global Enable_CheckForUpdates := true
 global defaultRAM := 2
+global debug := false
+
+;-------- End of Quick Modifications -------
+
+
+
+
+#NoTrayIcon
+#persistent
+#singleinstance, Off
+OnError("ErrorFunc")
+OnExit("ExitFunc")
+
 FontInf := GetFontDefault()
 global FontSmall := FontInf.Small
 global FontNormal := FontInf.Normal
 global FontLarge := FontInf.Large
 
-
-
-#NoTrayIcon
+CheckPortableMode()
 FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
-#persistent
-#singleinstance, Off
 
 global ServerList
 global ngrok_enable := Getngrok_enable()
@@ -19,11 +31,9 @@ global ngrok_enable := Getngrok_enable()
 If FileExist("QuickServer.ico") {
 	menu, tray, icon, QuickServer.ico
 }
-OnError("ErrorFunc")
-OnExit("ExitFunc")
 
 
-CheckForUpdates()
+
 AutoRun()
 return
 
@@ -32,19 +42,23 @@ return
 ;---------------------------  AUTORUN ----------------------------------
 AutoRun() {
 
-If WinExist("ahk_exe QuickServer.exe")
-{
-	WinActivate
-	ExitApp
-}
-Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
-{
-	WinActivate
-	ExitApp
-}
-
-ChooseServerWindow()
-return
+	If WinExist("ahk_exe QuickServer.exe")
+	{
+		WinActivate
+		ExitApp
+	}
+	Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
+	{
+		WinActivate
+		ExitApp
+	}
+	
+	If Enable_CheckForUpdates {
+		CheckForUpdates()
+	}
+	
+	ChooseServerWindow()
+	return
 }
 
 CheckForUpdates() {
@@ -76,16 +90,37 @@ CheckForUpdates() {
 	}
 }
 
+CheckPortableMode() {
+	UsePortable := IniRead(A_ScriptDir . "\QuickServer.ini", "QuickServer", "EnablePortableMode", 0)
+	If not FileExist(DefaultDir . "\QuickServer.ini") and not UsePortable ;----prompt for installation
+	{
+		msgbox, 0x23, Install QuickServer, Would you like to install QuickServer on this computer? Press Yes to install. Press No to use QuickServer Portable (i.e. if you want to run it on a flash drive).
+		IfMsgBox Cancel
+			ExitApp
+		IfMsgBox No
+		{
+			DefaultDir := A_ScriptDir
+			Enable_CheckForUpdates := false
+			IniWrite(true, A_ScriptDir . "\QuickServer.ini", "QuickServer", "EnablePortableMode")
+		}
+	}
+	Else If UsePortable
+	{
+		DefaultDir := A_ScriptDir
+		Enable_CheckForUpdates := false
+	}
+}
 
 ExitFunc() {
+	return false
 }
 
 ErrorFunc(exception) {
 	FormatTime, t,, MM/dd/yyyy hh:mm:ss tt
-	ErrorMsg := "[" . t . "] Something went wrong because I am dumb. Error message: " . exception.Message
+	ErrorMsg := "[" . t . "]`nError: " . exception.Message
 	msgbox,0x10,, %ErrorMsg%
-	FileAppend, %ErrorMsg%`n, QuickServer.log
-	return true
+	FileAppend, %ErrorMsg%`n`n`n, QuickServer.log
+	return not debug
 }
 
 
@@ -96,18 +131,41 @@ ErrorFunc(exception) {
 
 
 ChooseServerWindow() {
+	static
 	global ChosenNumber
 	ServerList := GetServerList()
 	gui,MainGUI:destroy
 	gui, MainGUI:new
+	gui, Font, s%FontNormal%
+	gui, add, text,,Select Server:
+	LV_width := FontNormal * 50
+	gui, add, ListView, % "R15 w" . LV_width . " gSelectServer_ListView vSelectServer_ListView -Multi Count" . ServerList.Length(), Name|DateFormat|uniquename|Date Modified
+	guicontrol, -redraw, SelectServer_ListView
+	Loop, % ServerList.Length()
+	{
+		DateFormat := GetDate(ServerList[A_Index])
+		
+		LV_Add("",IniRead(ServerList[A_Index] . "\QuickServer.ini", "QuickServer", "name", "Untitled server"),GetDate(ServerList[A_Index],false),ServerList[A_Index],GetDate(ServerList[A_Index],true))
+	}
+	LV_ModifyCol(1, FontNormal * 30)
+	LV_ModifyCol(1, "Sort")
+	LV_Modify(1, "Focus")
+	LV_ModifyCol(2, 0)
+	LV_ModifyCol(3, 0)
+	LV_ModifyCol(4, "AutoHDR NoSort")
+	guicontrol, +redraw, SelectServer_ListView
+	
+	
+	gui, add, text,ym,   
 	gui, Font, s%FontLarge%
 	gui, add, Button, gButton_Main_NewServer, New Server
-	gui, add, text,,`n Select Server:
-	gui, add, DropDownList, vChosenNumber Choose1 altsubmit, % ExtractServerNames()
 	gui, add, Button, gSelectServer_Run, Run Server
 	gui, add, Button, gSelectServer_Settings, Edit Server
-	gui, add, Link, gngroksetup, <a> How do my friends and I connect to my server? </a>`n
-	gui, add, Link, gReInstall, <a>Help! Every time I try to create a new server it fails</a>
+	gui, add, Link, gngroksetup, <a>Click here to Setup`nConnection via Internet</a>
+	gui, add, Link, gSelectServer_Restore, <a>Restore a backup</a>
+	gui, add, Link, gReInstall, <a>Help! Every time I try to`ncreate a new server it fails</a>
+
+	
 	gui, show, Autosize Center
 }
 
@@ -115,6 +173,23 @@ ChooseServerWindow() {
 
 ; Main window buttons
 {
+
+SelectServer_ListView() {
+	critical
+	If (A_GuiEvent = "ColClick") and (A_EventInfo = 4) {
+		;sort by date modified
+		static inverse
+		inverse := not inverse
+		options := inverse ? "desc" : ""
+		LV_ModifyCol(2, "Sort" . options)
+	}
+	Else If (A_GuiEvent = "DoubleClick") {
+		critical,off
+		LV_GetText(uniquename, A_EventInfo,3)
+		SelectServer_Run()
+		;run server
+	}
+}
 
 Button_Main_NewServer() {
 
@@ -129,7 +204,12 @@ Button_Main_NewServer() {
 
 SelectServer_Run() {
 	gui,MainGui:submit,nohide
-	SelectedServer := new Server(GetChosenUniquename())
+	uniquename := GetChosenUniquename()
+	if not FileExist(uniquename . "\server.properties") {
+		msb("Select a server")
+		return
+	}
+	SelectedServer := new Server(uniquename)
 	If not SelectedServer.uniquename
 		return false
 	SelectedServer.Start()
@@ -137,6 +217,11 @@ SelectServer_Run() {
 
 SelectServer_Settings() {
 	gui,MainGUI:submit,nohide
+	uniquename := GetChosenUniquename()
+	if not FileExist(uniquename . "\server.properties") {
+		msb("Select a server")
+		return
+	}
 	SelectedServer := new Server(GetChosenUniquename())
 	If not SelectedServer.uniquename
 		return false
@@ -144,12 +229,39 @@ SelectServer_Settings() {
 	return true
 }
 
+SelectServer_Restore() {
+	FileSelectFile, SelectedFile, 1,,Restore Server Backup, QuickServer Backups (*.zip)
+	If Errorlevel
+		return
+	SplashTextOn,,,Importing...
+	FileCreateDir, %A_Temp%\.QuickServer\import
+	runwait, tar.exe -x -f %SelectedFile%,%A_Temp%\.QuickServer\import,hide
+	NewUniquename := UniqueFolderCreate("Server")
+	OriginFolder := "null"
+	Loop, Files, %A_Temp%\.QuickServer\import\Server_*, D
+	{
+		OriginFolder := A_LoopFileName
+	}
+	If not FileExist(A_Temp . "\.QuickServer\import\" . OriginFolder . "\server.properties") {
+		SplashTextOff
+		throw Exception("Could not open " . SelectedFile)
+	}
+	CopyFilesAndFolders(A_Temp . "\.QuickServer\import\" . OriginFolder . "\*.*", NewUniquename, true)
+	FileRemoveDir, %A_Temp%\.QuickServer\import, true
+	SplashTextOff
+	ImportedServer := new Server(NewUniquename)
+	ImportedServer.name := ImportedServer.name . "--backup"
+	ImportedServer.Rename()
+	ChooseServerWindow()
+}
 
 ReInstall() {
 	InputBox, v, Reset and Reinstall QuickServer, This will reset the installation of Minecraft Server. It will NOT delete your servers`, but after resetting`, you will need to update/upgrade each of your servers before running them (go to: server settings>update/upgrade server). Type "confirm" below to confirm
 	If not ErrorLevel and (v = "confirm")
 	{
+		SplashTextOn,,,Resetting...
 		FileRemoveDir, BuildTools, true
+		SplashTextOff
 	}
 }
 
@@ -209,9 +321,9 @@ ExtractServerNames() {
 }
 
 GetChosenUniquename() {
-	Global ServerList
-	Global ChosenNumber
-	return ServerList[ChosenNumber]
+	gui,MainGUI:default
+	LV_GetText(v, LV_GetNext(,"Focused"),3)
+	return v
 }
 
 
@@ -246,7 +358,16 @@ class Server { ;-------------------------Class Server---------------------------
 			return, IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "version", "latest") 
 		}
 		set {
-			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, version
+			version := (StrLen(value) < 10) ? value : "ERROR"
+			IniWrite, % version, % this.uniquename . "\QuickServer.ini", QuickServer, version
+		}
+	}
+	DateModified[] {
+		get {
+			return, IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "DateModified", A_Now)
+		}
+		set {
+			IniWrite(value, this.uniquename . "\QuickServer.ini", "QuickServer", "DateModified")
 		}
 	}
 	RAM[] {
@@ -342,16 +463,25 @@ class Server { ;-------------------------Class Server---------------------------
 		this.props := new properties(this.uniquename . "\server.properties")
 		this.props.setKey("motd", this.name)
 		this.RAM := defaultRAM
+		this.DateModified := A_Now
 		return true
 	}
 	
 	start() {
 		RAM := this.RAM
 		JarFile := this.JarFile
+		If not FileExist(JarFile) or not InStr(JarFile, ".jar") {
+			MsgBox, 0x14, % this.name, Could not find server installation. Install now?
+			IfMsgBox No
+				return
+			this.UpdateThisServer()
+			return
+		}
 		uniquename := this.uniquename
 		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui
 		RunTer(cmd, this.name, uniquename)
 		ngrok_run()
+		this.DateModified := A_Now
 	}
 	
 	Settings(flush := false) {
@@ -387,7 +517,7 @@ class Server { ;-------------------------Class Server---------------------------
 		guicontrol, +g, s_Start, %btn_func%
 		gui, add, Button, vs_Rename, Rename Server
 		guicontrol, +g, s_Rename, %btn_func%
-		gui, add, text, vs_version, % "Currently running " . this.version . ".`nPress the button below to either update                         `nthe current version to the latest build`n(i.e. if the server says it is out of date)`nor upgrade the server to a newer`nversion of minecraft"
+		gui, add, text, vs_version, % "Current version: " . this.version . "`nPress the button below to either update                         `nthe current version to the latest build`n(i.e. if the server says it is out of date)`nor upgrade the server to a newer`nversion of Minecraft."
 		gui, add, Button, vs_Update, Change version or update to latest build
 		guicontrol, +g, s_Update, %btn_func%
 		gui, add, Button, vs_Backup, Create a backup of this server
@@ -404,7 +534,8 @@ class Server { ;-------------------------Class Server---------------------------
 		gui, add, link, vs_Plugins, <a>Server Plugins</a> -- Easily import and manage plugins!
 		guicontrol, +g, s_Plugins, %btn_func%
 		gui, add, text,, Server Description (appears on Multiplayer menu)
-		gui, add, Edit, vmotd, % this.props.getKey("motd")
+		gui, add, Edit, Limit59 vmotd
+		guicontrol,, motd, % this.props.getKey("motd")
 		gui, add, text,, Gamemode
 		gui, add, DropDownList, vgamemode, Survival|Creative|Adventure
 		guicontrol, ChooseString, gamemode, % this.props.getKey("gamemode")
@@ -439,13 +570,14 @@ class Server { ;-------------------------Class Server---------------------------
 		
 		
 		
-		gui, add, Button, vs_Save, Save Settings
+		gui, add, Button, default vs_Save, Save Settings
 		guicontrol, +g, s_Save, %btn_func%
 		gui, show, Autosize Center
 	}
 	
 	Save() {
 		this.settings(true) ;saves the settings onto the disk
+		this.DateModified := A_Now
 	}
 	
 	UpdateThisServer() {
@@ -472,7 +604,7 @@ class Server { ;-------------------------Class Server---------------------------
 		InputBox, NewName, QuickServer, Enter a new name for your server.,,,,,,,, % this.name
 		If Errorlevel
 			return false
-		this.name := NewName
+		this.name := SubStr(NewName,1,50)
 		return true
 	}
 	
@@ -484,6 +616,7 @@ class Server { ;-------------------------Class Server---------------------------
 		SplashTextOff
 		CreatedServer.name := this.name . " (Copy)"
 		CreatedServer.Rename()
+		CreatedServer.DateModified := A_Now
 		ChooseServerWindow()
 	}
 	Delete() {
@@ -499,20 +632,22 @@ class Server { ;-------------------------Class Server---------------------------
 
 SettingsButtonPush(byref this, byref buttonname, settingsname) {
 	gui, %settingsname%:default
-	gui, submit
 	buttonname := A_GuiControl
+	If (buttonname = "s_Plugins") {
+		PluginsGUI(this)
+		return
+	}
+	gui, submit
+	ChooseServerWindow()
 	this.save()
 	If (buttonname = "s_Delete") {
 		this.Delete()
 	}
-	If (buttonname = "s_Duplicate") {
+	Else If (buttonname = "s_Duplicate") {
 		this.Duplicate()
 	}
-	If (buttonname = "s_Advanced") {
+	Else If (buttonname = "s_Advanced") {
 		run, % "notepad.exe """ . this.uniquename . "\server.properties""",,max
-	}
-	If (buttonname = "s_Plugins") {
-		PluginsGUI(this)
 	}
 	Else if (buttonname = "s_Update") {
 		this.UpdateThisServer()
@@ -530,8 +665,6 @@ SettingsButtonPush(byref this, byref buttonname, settingsname) {
 	}
 	Else if (buttonname = "s_Rename") {
 		this.Rename()
-		gui, MainGUI:destroy
-		ChooseServerWindow()
 		this.settings()
 	}
 }
@@ -662,6 +795,14 @@ String(value) {
 	return v
 }
 
+GetDate(uniquename,formatted := false) {
+	dateformat := IniRead(uniquename . "\QuickServer.ini", "QuickServer", "DateModified", A_Now)
+	If not formatted
+		return dateformat
+	FormatTime, v, %dateformat%, MM/dd/yy h:mmtt
+	return v
+}
+
 UniqueFolderCreate(DesiredName) {
 	If not FileExist(DesiredName . "_1") {
 		try FileCreateDir, %DesiredName%_1
@@ -719,12 +860,12 @@ eulaAgree_finishEULA() {
 
 
 UpdateServer(version := "latest") {
-	if not InStr(FileExist(A_AppData "\.QuickServer\BuildTools"), "D") {
-		filecreatedir, %A_AppData%\.QuickServer\BuildTools
+	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
+		filecreatedir, %DefaultDir%\BuildTools
 	}
 	UpdateServerRetry:
 	try {
-		runwait, curl -z BuildTools.jar -o BuildTools.jar https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar, %A_AppData%\.QuickServer\BuildTools
+		runwait, curl -z BuildTools.jar -o BuildTools.jar https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar, %DefaultDir%\BuildTools
 	}
 	catch {
 		msgbox, 0x15, QuickServer, Error. If you see this, try downloading and installing curl at https://curl.haxx.se/windows/ 
@@ -735,7 +876,7 @@ UpdateServer(version := "latest") {
 		return false
 	}
 	try {
-		runwait, %comspec% /c java -jar BuildTools.jar --rev %version%, %A_AppData%\.QuickServer\BuildTools
+		runwait, %comspec% /c java -jar BuildTools.jar --rev %version%, %DefaultDir%\BuildTools
 		
 	}
 	catch {
@@ -752,22 +893,22 @@ UpdateServer(version := "latest") {
 
 
 BuildTools_getServerFile(version) {
-	If not FileExist(A_AppData "\.QuickServer\BuildTools\BuildTools.log.txt")
+	If not FileExist(DefaultDir "\BuildTools\BuildTools.log.txt")
 	{
 		return {confirmed: false}
 	}
-	FileRead, LogFile, %A_AppData%\.QuickServer\BuildTools\BuildTools.log.txt
+	FileRead, LogFile, %DefaultDir%\BuildTools\BuildTools.log.txt
 	FileNamePos := 15 + Instr(LogFile, "  - Saved as .\", 0)
 	ServerFile := StrReplace(StrReplace(SubStr(LogFile, FileNamePos), "`n"), "`r")
 	Serverinfo := {}
 	Serverinfo.version := StrReplace(StrReplace(ServerFile, "spigot-"), ".jar")        ; spigot-1.16.1.jar becomes 1.16.1
 	Serverinfo.confirmed := false
 	Serverinfo.isLatest := true
-	IfExist,%AppData%\.QuickServer\BuildTools\%ServerFile%
+	IfExist,%DefaultDir%\BuildTools\%ServerFile%
 	{
 		Serverinfo.confirmed := true
 	}
-	Else IfExist, %AppData%\.QuickServer\BuildTools\spigot-%version%.jar
+	Else IfExist, %DefaultDir%\BuildTools\spigot-%version%.jar
 	{
 		Serverinfo.confirmed := true
 		ServerFile = spigot-%version%.jar
@@ -777,7 +918,7 @@ BuildTools_getServerFile(version) {
 		Serverinfo.isLatest := false
 		Serverinfo.version := version
 	}
-	Serverinfo.uniquename := A_AppData "\.QuickServer\BuildTools\" . ServerFile
+	Serverinfo.uniquename := DefaultDir . "\BuildTools\" . ServerFile
 	
 	return, Serverinfo
 }
@@ -786,7 +927,7 @@ DownloadFailed(byref this) {
 	msgbox, 0x14,QuickServer Error,Could not find server file.`nAre you connected to the internet?`n`nOtherwise, you may be able to find the correct file manually. Would you like to try?
 	Ifmsgbox, Yes
 	{
-		FileSelectFile, newfile,1, % A_AppData "\.QuickServer\BuildTools\",,Java executables (*.jar)
+		FileSelectFile, newfile,1, % DefaultDir "\BuildTools\",,Java executables (*.jar)
 	}
 	Else
 	{
