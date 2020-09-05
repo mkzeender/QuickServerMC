@@ -32,6 +32,9 @@ If FileExist("QuickServer.ico") {
 	menu, tray, icon, QuickServer.ico
 }
 
+If Enable_CheckForUpdates {
+		CheckForUpdates()
+	}
 
 
 AutoRun()
@@ -53,9 +56,7 @@ AutoRun() {
 		ExitApp
 	}
 	
-	If Enable_CheckForUpdates {
-		CheckForUpdates()
-	}
+
 	
 	ChooseServerWindow()
 	return
