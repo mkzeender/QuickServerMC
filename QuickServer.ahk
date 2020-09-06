@@ -107,7 +107,6 @@ CheckPortableMode() {
 
 ExitFunc() {
 	ngrok_stop()
-	return false
 }
 
 ErrorFunc(exception) {
@@ -249,6 +248,8 @@ SelectServer_Import() {
 	CreatedServer.props.setKey("motd", CreatedServer.name)
 	CreatedServer.RAM := defaultRAM
 	CreatedServer.DateModified := A_Now
+	ChooseServerWindow()
+	CreatedServer.Settings()
 	return
 }
 
@@ -299,7 +300,8 @@ MainGUIGUIClose() {
 		MsgBox, 0x40134,Close Connections,Are you sure you sure you want to quit? Your server may lose connection.
 		IfMsgBox, No
 		{
-			return true
+			ChooseServerWindow()
+			return
 		}
 	}
 	ExitApp
@@ -341,15 +343,14 @@ GetServerList() {
 ngrok_run() {
 	global ngrok_pid
 	detecthiddenwindows,on
-	if ngrok_enable and not WinExist("ahk_pid " . ngrok_pid)
-		Run, cmd.exe /c ngrok tcp 25565 > ngrok.log,, % debug ? A_Space : "hide", ngrok_pid
+	if ngrok_enable and not WinExist("ahk_exe ngrok.exe")
+		Run,ngrok tcp 25565,, % debug ? A_Space : "hide", ngrok_pid
 }
 
 ngrok_stop() {
 	global ngrok_pid
 	detecthiddenwindows,on
-	If WinExist("ahk_pid " . ngrok_pid)
-		WinClose
+	WinClose, ahk_exe ngrok.exe
 }
 
 ngroksetup() {
@@ -428,6 +429,9 @@ class ConnectionsWindow {
 	
 	Refresh() {
 		global ConnectionsWindowPress, ConnectionsWindowRefresh, ConnectionsWindowRefreshing
+		If not this.IsOpen
+			return
+		
 		guicontrol, disable, ConnectionsWindowRefresh
 		guicontrol,,ConnectionsWindowRefreshing, Refreshing...
 		guicontrol, disable, ConnectionsWindowPress
