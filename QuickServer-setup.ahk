@@ -3,6 +3,8 @@ FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 #notrayicon
 
+FileMoveDir, Server, Server_256
+
 try {
 	runwait, java.exe,,hide
 }

@@ -5,9 +5,7 @@ global Enable_CheckForUpdates := true
 global defaultRAM := 2
 global debug := false
 
-;-------- End of Quick Modifications -------
-
-
+{ ;---------------------------  AUTORUN ----------------------------------
 
 
 #NoTrayIcon
@@ -36,31 +34,26 @@ If Enable_CheckForUpdates {
 		CheckForUpdates()
 	}
 
+If WinExist("ahk_exe QuickServer.exe")
+{
+	WinActivate
+	ExitApp
+}
+Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
+{
+	WinActivate
+	ExitApp
+}
 
-AutoRun()
+
+
+ChooseServerWindow()
+	return
+
 return
 
-
-
-;---------------------------  AUTORUN ----------------------------------
-AutoRun() {
-
-	If WinExist("ahk_exe QuickServer.exe")
-	{
-		WinActivate
-		ExitApp
-	}
-	Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
-	{
-		WinActivate
-		ExitApp
-	}
-	
-
-	
-	ChooseServerWindow()
-	return
 }
+
 
 CheckForUpdates() {
 	CurrentBuild := IniRead("QuickServer.ini", "version", "build", 0)
@@ -113,6 +106,7 @@ CheckPortableMode() {
 }
 
 ExitFunc() {
+	ngrok_stop()
 	return false
 }
 
@@ -162,7 +156,8 @@ ChooseServerWindow() {
 	gui, add, Button, gButton_Main_NewServer, New Server
 	gui, add, Button, gSelectServer_Run, Run Server
 	gui, add, Button, gSelectServer_Settings, Edit Server
-	gui, add, Link, gngroksetup, <a>Click here to Setup`nConnection via Internet</a>
+	gui, add, Button, gSelectServer_Import, Import World
+	gui, add, Link, gSelectServer_Connections, <a>Click here to Setup`nConnection via Internet</a>
 	gui, add, Link, gSelectServer_Restore, <a>Restore a backup</a>
 	gui, add, Link, gReInstall, <a>Help! Every time I try to`ncreate a new server it fails</a>
 
@@ -230,6 +225,38 @@ SelectServer_Settings() {
 	return true
 }
 
+SelectServer_Import() {
+	MsgBox,0x1,Import Server,Select a Minecraft world folder to import. They are usually found in the folder %appdata%\.minecraft\saves
+	IfMsgBox Cancel
+		return
+	FileSelectFolder, Worldfolder, %A_AppData%\.minecraft\saves,,Import World Folder
+	If ErrorLevel
+		return
+	If not FileExist(Worldfolder . "\Level.dat")
+		throw Exception("Invalid World Folder",-1)
+	uniquename := UniqueFolderCreate()
+	FileCreateDir, %uniquename%\world
+	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
+		msgbox, 0x10,Import World,Some world data could not be imported
+	CreatedServer := new Server(uniquename)
+	CreatedServer.name := "Imported Server"
+	If not CreatedServer.Rename()
+		return
+	If not eulaAgree(this.uniquename)
+		return
+	CreatedServer.UpdateThisServer()
+	CreatedServer.props := new properties(CreatedServer.uniquename . "\server.properties")
+	CreatedServer.props.setKey("motd", CreatedServer.name)
+	CreatedServer.RAM := defaultRAM
+	CreatedServer.DateModified := A_Now
+	return
+}
+
+SelectServer_Connections() {
+	ngrok_run()
+	ConnectionsWindow.Open()
+}
+
 SelectServer_Restore() {
 	FileSelectFile, SelectedFile, 1,,Restore Server Backup, QuickServer Backups (*.zip)
 	If Errorlevel
@@ -268,50 +295,17 @@ ReInstall() {
 
 
 MainGUIGUIClose() {
+	If ConnectionsWindow.IsOpen {
+		MsgBox, 0x40134,Close Connections,Are you sure you sure you want to quit? Your server may lose connection.
+		IfMsgBox, No
+		{
+			return true
+		}
+	}
 	ExitApp
 }
 
 }
-
-
-{ ;----------ngrok----------------
-
-ngrok_run() {
-	global
-	if ngrok_enable
-		RunTer("ngrok tcp 25565", "ngrok")
-}
-
-ngroksetup() {
-	global
-	gui, ngroksetup:new
-	gui, font, s%FontNormal%
-	gui, add, Link,, Ngrok is a free service to open your server to the public. Set up an ngrok account <a href="https://ngrok.com/"> here </a>.`n`nAlternatively, you can use <a href="https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"> Port Forwarding </a> for a permanent IP address (or website!).`n`nAfter creating your ngrok account, enter your account AuthToken below.`nYour server's link will be labeled as "forwarding" and will look something like 3.tcp.ngrok.io:12345 (ignore the "tcp://")
-	gui, add, Edit, vngrok_authtoken w150
-	gui, add, CheckBox, vngrok_enable Checked%ngrok_enable%, Use ngrok to connect to your server
-	gui, font, s%FontLarge%
-	gui, add, Button, gButton_ngrok_OK, OK
-	gui, show, Autosize Center
-}
-
-Button_ngrok_OK() {
-	global
-	gui, ngroksetup:submit
-	run, ngrok authtoken %ngrok_authtoken%,,hide
-	IniWrite, %ngrok_enable%, QuickServer.ini, ngrok, ngrok_enable
-	gui, ngroksetup:destroy
-	ngrok_run()
-	If ngrok_enable and not FileExist("ngrok.exe") {
-		Throw Exception("Ngrok installation failed. Connect to the internet and restart QuickServer to try again")
-	}
-}
-
-Getngrok_enable() {
-	return IniRead("QuickServer.ini", "ngrok", "ngrok_enable", true)
-}
-
-}
-
 
 ExtractServerNames() {
 	For index, uniquename in ServerList
@@ -340,6 +334,205 @@ GetServerList() {
 
 
 }
+
+
+{ ;----------------------------------------------ngrok----------------
+
+ngrok_run() {
+	global ngrok_pid
+	detecthiddenwindows,on
+	if ngrok_enable and not WinExist("ahk_pid " . ngrok_pid)
+		Run, cmd.exe /c ngrok tcp 25565 > ngrok.log,, % debug ? A_Space : "hide", ngrok_pid
+}
+
+ngrok_stop() {
+	global ngrok_pid
+	detecthiddenwindows,on
+	If WinExist("ahk_pid " . ngrok_pid)
+		WinClose
+}
+
+ngroksetup() {
+	global
+	gui, ngroksetup:new
+	gui, +AlwaysOnTop
+	gui, font, s%FontNormal%
+	gui, add, Link,, Ngrok is a free service to open your server to the public. Set up an ngrok account <a href="https://ngrok.com/">here</a>.`n`nAfter creating your ngrok account, enter your account AuthToken below.
+	gui, add, Edit, vngrok_authtoken w150
+	gui, add, CheckBox, vngrok_enable Checked%ngrok_enable%, Use ngrok to connect to your server
+	gui, font, s%FontLarge%
+	gui, add, Button, gButton_ngrok_OK, OK
+	gui, show, Autosize Center
+}
+
+Button_ngrok_OK() {
+	global ngrok_authtoken
+	gui, ngroksetup:submit
+	runwait, ngrok authtoken %ngrok_authtoken%,,hide
+	IniWrite, %ngrok_enable%, QuickServer.ini, ngrok, ngrok_enable
+	gui, ngroksetup:destroy
+	toggle := ngrok_enable ? ngrok_run() : ngrok_stop()
+	If ngrok_enable and not FileExist("ngrok.exe") {
+		Throw Exception("Ngrok installation failed. Connect to the internet and restart QuickServer to try again")
+	}
+}
+
+Getngrok_enable() {
+	return IniRead("QuickServer.ini", "ngrok", "ngrok_enable", true)
+}
+
+}
+
+
+{ ;----------------------------------------Connections Window
+
+class ConnectionsWindow {
+	static IsOpen := false
+	
+	Close() {
+		this.IsOpen := (this.IsOpen <= 0) ? 0 : this.IsOpen - 1
+		if not this.IsOpen {
+			gui, Connections:destroy
+			ngrok_stop()
+		}
+	}
+	
+	Open() {
+		static
+		global ConnectionsWindowPress
+		this.IsOpen += 1
+		ngrok_run()
+		FileCreateDir, %A_Temp%\QuickServer
+		gui, Connections:new
+		gui, +LastFound +AlwaysOnTop
+		WinSetTitle, Connections
+		gui, font, % "s" . FontNormal
+		width := FontNormal * 70
+		gui, add, Text,, Click a connection to set it up or modify it.`n`nNgrok is recommended for first-time users.
+		gui, add, ListView, % "w" . width . " AltSubmit Count4 Disabled vConnectionsWindowPress gConnectionsWindowPress Grid R5 noSortHdr", Name|Address|Status|Connectivity
+		guicontrol, -Redraw, ConnectionsWindowPress
+		LV_Add("","Local Computer", "LOCALHOST", "Connected", "This computer only")
+		LV_Add("","LAN","","","This WiFi network only")
+		LV_Add("","Public IP Address   ","","","Public")
+		ngroklink := this.ngrok_CheckConnection()
+		LV_Add("","Ngrok","","", "Public")
+		LV_ModifyCol(1,"AutoHdr")
+		LV_ModifyCol(2,FontNormal * 20)
+		LV_ModifyCol(3,FontNormal * 15)
+		LV_ModifyCol(4,"AutoHdr")
+		gui, add, Text, vConnectionsWindowRefreshing,Refreshing...
+		gui, add, Button, gConnectionsWindowRefresh vConnectionsWindowRefresh, Refresh
+		Gui, show, Autosize Center
+		this.Refresh()
+	}
+	
+	Refresh() {
+		global ConnectionsWindowPress, ConnectionsWindowRefresh, ConnectionsWindowRefreshing
+		guicontrol, disable, ConnectionsWindowRefresh
+		guicontrol,,ConnectionsWindowRefreshing, Refreshing...
+		guicontrol, disable, ConnectionsWindowPress
+		guicontrol, -Redraw, ConnectionsWindowPress
+		LANIP := (A_IPAddress1 = 0.0.0.0) ? "" : A_IPAddress1
+		LV_Modify(2,"Col2",LANIP, this.LAN_CheckConnection() ? "Connected" : (LANIP ? "Probably not connected" : "Not connected"))
+		PublicIP := this.PublicIP_CheckConnection()
+		LV_Modify(3,"Col2",PublicIP,PublicIP ? "Unknown" : "Not connected")
+		ngroklink := this.ngrok_CheckConnection()
+		LV_Modify(4,"Col2",ngroklink,ngroklink ? "Connected" : "Not Connected")
+		guicontrol, enable, ConnectionsWindowPress
+		guicontrol, +Redraw, ConnectionsWindowPress
+		guicontrol,,ConnectionsWindowRefreshing, % A_Space
+		guicontrol, enable, ConnectionsWindowRefresh
+	}
+	
+	LAN_CheckConnection() {
+		If (A_IPAddress1 = 0.0.0.0)
+			return ""
+			
+		runwait,cmd.exe /c powershell Get-NetConnectionProfile > "%A_Temp%\QuickServer\LAN_CheckConnection.txt",,hide
+		try FileRead, landata, %A_Temp%\QuickServer\LAN_CheckConnection.txt
+		If not landata
+			return ""
+			
+		Loop, Parse, landata, `n,`r%A_Space%%A_Tab%
+		{
+			sep := InStr(A_LoopField, ":")
+			If (Trim(SubStr(A_LoopField,1,sep-1),"`r`n" . A_Space . A_Tab) = "NetworkCategory") {
+				return (Trim(SubStr(A_LoopField,sep+1),"`r`n" . A_Space . A_Tab) = "private") ? A_IPAddress1 : "" ;returns empty string if false
+			}
+		}
+	}
+	
+	PublicIP_CheckConnection() {
+		FileDelete, %A_Temp%\QuickServer\PublicIP.tmp
+		URLDownloadToFile, http://www.whatismyip.org/, %A_Temp%\QuickServer\PublicIP.tmp
+		If not FileExist(A_Temp . "\QuickServer\PublicIP.tmp")
+			return
+		try FileRead, PublicIP, %A_Temp%\QuickServer\PublicIP.tmp
+		PublicIP := SubStr(PublicIP,InStr(PublicIP, "<a href=""/my-ip-address"">"))
+		PublicIP := SubStr(SubStr(PublicIP, 26, InStr(PublicIP,"</a>") - 26),1,25)
+		return PublicIP
+	}
+	
+	ngrok_CheckConnection() {
+		FileDelete, %A_Temp%\QuickServer\ngrok_CheckConnection.json
+		URLDownloadToFile, http://localhost:4040/api/tunnels/, %A_Temp%\QuickServer\ngrok_CheckConnection.json
+		try FileRead, jsondata, %A_Temp%\QuickServer\ngrok_CheckConnection.json
+		If not jsondata
+			return
+		Loop, Parse, jsondata, `,[, {}
+		{
+			sep := InStr(A_LoopField, ":")
+			If (SubStr(A_LoopField,1,sep-1) = """Public_URL""") {
+				address := Trim(SubStr(A_LoopField,sep+1), """")
+				return StrReplace(address, "tcp://")
+			}
+		}
+	}
+}
+
+ConnectionsWindowRefresh() {
+	ConnectionsWindow.Refresh()
+}
+
+ConnectionsWindowPress() {
+	critical
+	If (A_GuiEvent = "Normal")
+	{
+		critical off
+		If (A_EventInfo = 1) {
+			msgbox,0x40000,Local Computer,If you are playing Minecraft on this computer, you can connect to the server by using LOCALHOST as the server address.
+		}
+		If (A_EventInfo = 2) {
+			msgbox,0x40000,LAN,Anyone else playing on your LAN (a.k.a. your WiFi network) can connect to this address. However, you might need to mark the network as "private" (on your computer go to Settings > Network and Internet > Change Connection Properties)
+		}
+		If (A_EventInfo = 3) {
+			gui, PublicIP:new
+			gui, +AlwaysOnTop
+			gui, font, s%FontNormal%
+			gui, add, Link,,<a href="https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router">Setup Port Forwarding</a> to use a permanent IP address for your server (note: Minecraft uses the port 25565)`n`nOnce you have set up port forwarding`, you can optionally connect it to a permanent`ncustom address (i.e. <a>MyServerIsCool.com</a>)
+			gui, add, Button, default gPublicIPGuiClose, Ok
+			gui, show, autosize center
+		}
+		If (A_EventInfo = 4) {
+			ngroksetup()
+		}
+	}
+}
+
+ConnectionsGuiClose() {
+	MsgBox, 0x40134,Close Connections,Are you sure you sure you want to quit? Your server may lose connection.
+	IfMsgBox Yes
+	{
+		ConnectionsWindow.IsOpen := false
+		ConnectionsWindow.Close()
+	}
+	return true
+}
+PublicIPGuiClose() {
+	gui, destroy
+}
+}
+
 
 
 
@@ -480,9 +673,16 @@ class Server { ;-------------------------Class Server---------------------------
 		}
 		uniquename := this.uniquename
 		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui
-		RunTer(cmd, this.name, uniquename)
-		ngrok_run()
+		ServerPID := RunTer(cmd, this.name, uniquename)
 		this.DateModified := A_Now
+		
+		ngrok_run()
+		sleep, 10000
+		ConnectionsWindow.Open()
+		sleep, 20000
+		ConnectionsWindow.Refresh()
+		Process, WaitClose, %ServerPID%
+		ConnectionsWindow.Close()
 	}
 	
 	Settings(flush := false) {
@@ -670,7 +870,7 @@ SettingsButtonPush(byref this, byref buttonname, settingsname) {
 	}
 }
 
-{ ;Plugins Window --- PluginsGUI(byref this)
+{ ;--------------------------------------Plugins Window ---
 
 PluginsGUI(byref this) {
 	static
@@ -778,7 +978,7 @@ class properties {
 	
 }
 	
-
+{ ;---------------------------------------Technical----------
 
 Bool(value) {
 	if (value = "false")
@@ -804,7 +1004,7 @@ GetDate(uniquename,formatted := false) {
 	return v
 }
 
-UniqueFolderCreate(DesiredName) {
+UniqueFolderCreate(DesiredName := "Server") {
 	If not FileExist(DesiredName . "_1") {
 		try FileCreateDir, %DesiredName%_1
 		catch {
@@ -821,6 +1021,45 @@ UniqueFolderCreate(DesiredName) {
 		}
 	}
 }
+
+
+RunTer(command, windowtitle, startingdir := "") {
+	run, cmd.exe /c %command%, %startingdir%,, cmdPID
+
+	WinWait, ahk_pid %cmdPID%
+	WinExist("ahk_pid " . cmdPID)
+	WinBlur(100)
+	WinSetTitle, %windowtitle%
+	return cmdPID
+}
+
+IniRead(FileName, Section, Key, Default := "ERROR") {
+	IniRead, v, % FileName, % Section, % Key, % Default
+	return v
+}
+
+IniWrite(Value, FileName, Section, Key) {
+	IniWrite, % Value, % FileName, % Section, % Key
+}
+
+GetFontDefault() {
+	If (A_ScreenWidth > A_ScreenHeight) {
+		ScreenSize := A_ScreenHeight
+	}
+	Else {
+		ScreenSize := A_ScreenWidth
+	}
+	v := {}
+	v.Small := Round(ScreenSize * 8 / 1080)
+	v.Normal := Round(ScreenSize * 10 / 1080)
+	v.Large := Round(ScreenSize * 13 / 1080)
+	return v
+}
+
+
+}
+
+{ ;-----------------------------------------EULA-----------------------
 
 eulaAgree(ServerFolder) {
 	static EULAIAgree
@@ -843,10 +1082,6 @@ eulaAgree(ServerFolder) {
 	return false
 }	
 	
-
-
-
-
 eulaAgree_changeaccept() {
 	gui, eulaAgree:submit, nohide
 	guicontrol, enable, eulaAgree_finishEULA
@@ -859,7 +1094,11 @@ eulaAgree_finishEULA() {
 	gui, destroy
 }
 
+}
 
+
+
+{ ;-------------------------------------Update---------------
 UpdateServer(version := "latest") {
 	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
 		filecreatedir, %DefaultDir%\BuildTools
@@ -891,7 +1130,6 @@ UpdateServer(version := "latest") {
 	ServerFile := BuildTools_getServerFile(version)
 	return ServerFile
 }
-
 
 BuildTools_getServerFile(version) {
 	If not FileExist(DefaultDir "\BuildTools\BuildTools.log.txt")
@@ -935,42 +1173,9 @@ DownloadFailed(byref this) {
 		this.UpdateThisServer()
 	}
 }
-
-RunTer(command, windowtitle, startingdir := "") {
-	run, cmd.exe /c %command%, %startingdir%,, cmdPID
-
-	WinWait, ahk_pid %cmdPID%
-	WinExist("ahk_pid " . cmdPID)
-	WinBlur(100)
-	WinSetTitle, %windowtitle%
-	return cmdPID
 }
 
-IniRead(FileName, Section, Key, Default := "ERROR") {
-	IniRead, v, % FileName, % Section, % Key, % Default
-	return v
-}
-
-IniWrite(Value, FileName, Section, Key) {
-	IniWrite, % Value, % FileName, % Section, % Key
-}
-
-GetFontDefault() {
-	If (A_ScreenWidth > A_ScreenHeight) {
-		ScreenSize := A_ScreenHeight
-	}
-	Else {
-		ScreenSize := A_ScreenWidth
-	}
-	v := {}
-	v.Small := Round(ScreenSize * 8 / 1080)
-	v.Normal := Round(ScreenSize * 10 / 1080)
-	v.Large := Round(ScreenSize * 13 / 1080)
-	return v
-}
-
-
-
+{ ;-------------------------------------Misc----------------
 
 DefaultPropertiesFile(FilePath) {
 	FileAppend,
@@ -1083,20 +1288,19 @@ WinBlur(Opacity := 0, BackgroundColor := 0x000000, WinTitle := "", Enable := tru
 	
 }
 
-CopyFilesAndFolders(SourcePattern, DestinationFolder, DoOverwrite = false) {
-; Copies all files and folders matching SourcePattern into the folder named DestinationFolder and
-; returns the number of files/folders that could not be copied.
+CopyFilesAndFolders(SourcePattern, DestinationFolder, DoOverwrite = false)
+{
 
     ; First copy all the files (but not the folders):
     FileCopy, %SourcePattern%, %DestinationFolder%, %DoOverwrite%
     ErrorCount := ErrorLevel
     ; Now copy all the folders:
     Loop, %SourcePattern%, 2  ; 2 means "retrieve folders only".
-    {
-        FileCopyDir, %A_LoopFileFullPath%, %DestinationFolder%\%A_LoopFileName%, %DoOverwrite%
+	{
+		FileCopyDir, %A_LoopFileFullPath%, %DestinationFolder%\%A_LoopFileName%, %DoOverwrite%
         ErrorCount += ErrorLevel
-        if ErrorLevel  ; Report each problem folder by name.
-            MsgBox Could not copy %A_LoopFileFullPath% into %DestinationFolder%.
-    }
-    return ErrorCount
+	}
+	return ErrorCount
+}
+
 }
