@@ -12,13 +12,12 @@ global debug := false
 #persistent
 #singleinstance, Off
 OnError("ErrorFunc")
-OnExit("ExitFunc")
 
 FontInf := GetFontDefault()
 global FontSmall := FontInf.Small
 global FontNormal := FontInf.Normal
 global FontLarge := FontInf.Large
-
+CheckSingleInstance()
 CheckPortableMode()
 FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
@@ -32,27 +31,16 @@ If FileExist("QuickServer.ico") {
 
 If Enable_CheckForUpdates {
 		CheckForUpdates()
-	}
-
-If WinExist("ahk_exe QuickServer.exe")
-{
-	WinActivate
-	ExitApp
-}
-Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
-{
-	WinActivate
-	ExitApp
 }
 
 
+OnExit("ExitFunc")
 
 ChooseServerWindow()
-	return
 
 return
 
-}
+
 
 
 CheckForUpdates() {
@@ -105,6 +93,18 @@ CheckPortableMode() {
 	}
 }
 
+CheckSingleInstance() {
+	If WinExist("ahk_exe QuickServer.exe") {
+		WinActivate
+		ExitApp
+	}
+	Else If not A_IsCompiled and WinExist("QuickServer.ahk ahk_exe Autohotkey.exe")
+	{
+		WinActivate
+		ExitApp
+	}
+}
+
 ExitFunc() {
 	ngrok_stop()
 }
@@ -117,7 +117,7 @@ ErrorFunc(exception) {
 	return not debug
 }
 
-
+}
 
 
 { ;----------------------------------Main GUI (SelectServer) Window-------------------------------- 
@@ -683,8 +683,6 @@ class Server { ;-------------------------Class Server---------------------------
 		ngrok_run()
 		sleep, 10000
 		ConnectionsWindow.Open()
-		sleep, 20000
-		ConnectionsWindow.Refresh()
 		Process, WaitClose, %ServerPID%
 		ConnectionsWindow.Close()
 	}
