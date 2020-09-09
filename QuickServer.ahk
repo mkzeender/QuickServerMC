@@ -241,7 +241,7 @@ SelectServer_Import() {
 	CreatedServer.name := "Imported Server"
 	If not CreatedServer.Rename()
 		return
-	If not eulaAgree(this.uniquename)
+	If not eulaAgree(CreatedServer.uniquename)
 		return
 	CreatedServer.UpdateThisServer()
 	CreatedServer.props := new properties(CreatedServer.uniquename . "\server.properties")
