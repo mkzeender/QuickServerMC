@@ -5,10 +5,13 @@ global Enable_CheckForUpdates := true
 global defaultRAM := 2
 global debug := false
 
-{ ;---------------------------  AUTORUN ----------------------------------
+{ ;--------------------------------  AUTORUN ----------------------------------
 
-
+SetBatchLines, -1
 #NoTrayIcon
+If debug {
+	Menu, tray, icon
+}
 #persistent
 #singleinstance, Off
 OnError("ErrorFunc")
@@ -23,20 +26,23 @@ FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 
 global ServerList
-global ngrok_enable := Getngrok_enable()
+global ngrok := new NgrokHandler
 
 If FileExist("QuickServer.ico") {
 	menu, tray, icon, QuickServer.ico
 }
 
 If Enable_CheckForUpdates {
-		CheckForUpdates()
+	CheckForUpdates()
 }
 
 
 OnExit("ExitFunc")
 
-ChooseServerWindow()
+BuildServerWindow()
+SetBatchLines, 20ms
+ngrok.run()
+ConnectionsWindow.Refresh()
 
 return
 
@@ -106,7 +112,7 @@ CheckSingleInstance() {
 }
 
 ExitFunc() {
-	ngrok_stop()
+	ngrok.stop()
 }
 
 ErrorFunc(exception) {
@@ -119,69 +125,96 @@ ErrorFunc(exception) {
 
 }
 
-
 { ;----------------------------------Main GUI (SelectServer) Window-------------------------------- 
 
 
 
 ChooseServerWindow() {
-	static
-	global ChosenNumber
+	global MainGui_ServerListView
+	ListCtrl := MainGui_ServerListView
+	ListCtrl.LV_Delete()
+	
 	ServerList := GetServerList()
-	gui,MainGUI:destroy
-	gui, MainGUI:new
-	gui, Font, s%FontNormal%
-	gui, add, text,,Select Server:
-	LV_width := FontNormal * 50
-	gui, add, ListView, % "R15 w" . LV_width . " gSelectServer_ListView vSelectServer_ListView -Multi Count" . ServerList.Length(), Name|DateFormat|uniquename|Date Modified
-	guicontrol, -redraw, SelectServer_ListView
+	
 	Loop, % ServerList.Length()
 	{
 		DateFormat := GetDate(ServerList[A_Index])
 		
-		LV_Add("",IniRead(ServerList[A_Index] . "\QuickServer.ini", "QuickServer", "name", "Untitled server"),GetDate(ServerList[A_Index],false),ServerList[A_Index],GetDate(ServerList[A_Index],true))
+		ListCtrl.LV_Add("",IniRead(ServerList[A_Index] . "\QuickServer.ini", "QuickServer", "name", "Untitled server"),GetDate(ServerList[A_Index],false),ServerList[A_Index],GetDate(ServerList[A_Index],true))
 	}
-	LV_ModifyCol(1, FontNormal * 30)
-	LV_ModifyCol(1, "Sort")
-	LV_Modify(1, "Focus")
-	LV_ModifyCol(2, 0)
-	LV_ModifyCol(3, 0)
-	LV_ModifyCol(4, "AutoHDR NoSort")
-	guicontrol, +redraw, SelectServer_ListView
 	
-	
-	gui, add, text,ym,   
-	gui, Font, s%FontLarge%
-	gui, add, Button, gButton_Main_NewServer, New Server
-	gui, add, Button, gSelectServer_Run, Run Server
-	gui, add, Button, gSelectServer_Settings, Edit Server
-	gui, add, Button, gSelectServer_Import, Import World
-	gui, add, Link, gSelectServer_Connections, <a>Click here to Setup`nConnection via Internet</a>
-	gui, add, Link, gSelectServer_Restore, <a>Restore a backup</a>
-	gui, add, Link, gReInstall, <a>Help! Every time I try to`ncreate a new server it fails</a>
+	Listctrl.LV_Modify(1, "Focus")
+}
 
+BuildServerWindow() {
+	ServerLV_Menu.Build()
 	
-	gui, show, Autosize Center
+	global MainGui
+	MainGui := new Gui(, "QuickServer")
+	MainGui.Font("s" . FontNormal)
+	LV_width := FontNormal * 50
+	Listctrl := MainGui.add("ListView", "R15 w" . LV_width . " -Multi", "World|DateFormat|uniquename|Date Modified")
+
+	Listctrl.LV_ModifyCol(1, FontNormal * 30)
+	Listctrl.LV_ModifyCol(1, "Sort")
+	Listctrl.LV_ModifyCol(2, 0)
+	Listctrl.LV_ModifyCol(3, 0)
+	Listctrl.LV_ModifyCol(4, "AutoHDR NoSort")
+	Listctrl.OnEvent("SelectServer_ListView", "Normal")
+	global MainGui_ServerListView
+	MainGui_ServerListView := Listctrl
+	;ServerLV_Menu.Build()
+	;ListCtrl.OnEvent(ServerLV_Menu.Show.Bind(ServerLV_Menu), "ContextMenu")
+	
+	MainGui.add("text","ym")   
+	MainGui.Font("s" . FontLarge)
+	Maingui.add("Button", , "New World").OnEvent("Button_Main_NewServer")
+	Maingui.add("Button",,"Play Selected World").OnEvent("SelectServer_Run")
+	Maingui.add("Button",, "World Settings").OnEvent("SelectServer_Settings")
+	Maingui.add("Button", , "Import World").OnEvent("SelectServer_Import")
+	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore")
+	Maingui.add("Link", , "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall")
+	
+	Maingui.Font("s" . FontNormal)
+	ConnectionsWindow.Include(MainGui)
+
+	MainGui.OnEvent(Func("MainGUIGUIClose"),"Close")
+	MainGui.show("Autosize Center")
+	ChooseServerWindow()
 }
 
 
+Class ServerLV_Menu {
+	Build() {
+		funcobj := ServerLV_Menu.ChooseItem.Bind(this)
+		Menu, ServerLV_Menu, Add,Run,%funcobj%
+		Menu, ServerLV_Menu, Default, Run
+		Menu, ServerLV_Menu, Add,Settings,%funcobj%
+	}
+	Show(Event) {
+		this.uniquename := GetChosenUniquename()
+		Menu, ServerLV_Menu, Show
+	}
+	
+	ChooseItem(ItemName,ItemPos,MenuName) {
+		(ItemName = "Run") ? SelectServer_Run() : ""
+		(ItemName = "Settings") ? SelectServer_Settings()
+	}
+}
+{ ;Main window buttons
 
-; Main window buttons
-{
-
-SelectServer_ListView() {
+SelectServer_ListView(Event) {
 	critical
-	If (A_GuiEvent = "ColClick") and (A_EventInfo = 4) {
+	If (Event.GuiEvent = "ColClick") and (Event.EventInfo = 4) {
 		;sort by date modified
 		static inverse
 		inverse := not inverse
 		options := inverse ? "desc" : ""
-		LV_ModifyCol(2, "Sort" . options)
+		Event.Control.LV_ModifyCol(2, "Sort" . options)
 	}
-	Else If (A_GuiEvent = "DoubleClick") {
+	Else If (Event.GuiEvent = "DoubleClick") {
 		critical,off
-		LV_GetText(uniquename, A_EventInfo,3)
-		SelectServer_Run()
+		SelectServer_Run(Event)
 		;run server
 	}
 }
@@ -197,8 +230,7 @@ Button_Main_NewServer() {
 	CreatedServer.settings()
 }
 
-SelectServer_Run() {
-	gui,MainGui:submit,nohide
+SelectServer_Run(Event := "") {
 	uniquename := GetChosenUniquename()
 	if not FileExist(uniquename . "\server.properties") {
 		msb("Select a server")
@@ -211,7 +243,6 @@ SelectServer_Run() {
 }
 
 SelectServer_Settings() {
-	gui,MainGUI:submit,nohide
 	uniquename := GetChosenUniquename()
 	if not FileExist(uniquename . "\server.properties") {
 		msb("Select a server")
@@ -225,37 +256,56 @@ SelectServer_Settings() {
 }
 
 SelectServer_Import() {
-	MsgBox,0x1,Import Server,Select a Minecraft world folder to import. They are usually found in the folder %appdata%\.minecraft\saves
-	IfMsgBox Cancel
-		return
+	ImportGui := new Gui("-sysmenu","Import Server")
+	ImportGui.font("s" . FontLarge)
+	ImportGui.add("Button", , "Import Singleplayer World").OnEvent("ImportSinglePlayer")
+	ImportGui.add("Button", "ym", "Import a Pre-existing Server").OnEvent("ImportExternalServer")
+	ImportGui.add("Button", "ym", "Cancel")
+	ImportGui.show("autosize center", "Import Server").OnEvent("ImportExternalServer")
+	ImportGui.Wait()
+	ImportGui.Destroy()
+}
+
+ImportSinglePlayer() {
 	FileSelectFolder, Worldfolder, %A_AppData%\.minecraft\saves,,Import World Folder
 	If ErrorLevel
 		return
 	If not FileExist(Worldfolder . "\Level.dat")
 		throw Exception("Invalid World Folder",-1)
-	uniquename := UniqueFolderCreate()
+		
+	CreatedServer := new Server("Server")
+	If not CreatedServer.Create("Imported Server")
+		return
+	
+	uniquename := CreatedServer.uniquename
 	FileCreateDir, %uniquename%\world
 	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
 		msgbox, 0x10,Import World,Some world data could not be imported
-	CreatedServer := new Server(uniquename)
-	CreatedServer.name := "Imported Server"
-	If not CreatedServer.Rename()
-		return
-	If not eulaAgree(CreatedServer.uniquename)
-		return
-	CreatedServer.UpdateThisServer()
-	CreatedServer.props := new properties(CreatedServer.uniquename . "\server.properties")
-	CreatedServer.props.setKey("motd", CreatedServer.name)
-	CreatedServer.RAM := defaultRAM
-	CreatedServer.DateModified := A_Now
+		
+		
 	ChooseServerWindow()
 	CreatedServer.Settings()
 	return
 }
 
-SelectServer_Connections() {
-	ngrok_run()
-	ConnectionsWindow.Open()
+ImportExternalServer() {
+	FileSelectFolder, Worldfolder,,,Import Server Folder (folder should contain a server.properties file)
+	If ErrorLevel
+		return
+	If not FileExist(Worldfolder . "\server.properties")
+		throw Exception("Invalid World Folder",-1)
+		
+	CreatedServer := new Server("Server")
+	If not CreatedServer.Create("Imported Server")
+		return
+	
+	uniquename := CreatedServer.uniquename
+	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename)
+		msgbox, 0x10,Import World,Some world data could not be imported
+		
+		
+	ChooseServerWindow()
+	CreatedServer.Settings()
 }
 
 SelectServer_Restore() {
@@ -295,15 +345,7 @@ ReInstall() {
 }
 
 
-MainGUIGUIClose() {
-	If ConnectionsWindow.IsOpen {
-		MsgBox, 0x40134,Close Connections,Are you sure you sure you want to quit? Your server may lose connection.
-		IfMsgBox, No
-		{
-			ChooseServerWindow()
-			return
-		}
-	}
+MainGUIGUIClose(Event := "") {
 	ExitApp
 }
 
@@ -318,11 +360,10 @@ ExtractServerNames() {
 }
 
 GetChosenUniquename() {
-	gui,MainGUI:default
-	LV_GetText(v, LV_GetNext(,"Focused"),3)
+	global MainGui_ServerListView
+	MainGui_ServerListView.LV_GetText(v, MainGui_ServerListView.LV_GetNext(,"Focused"),3)
 	return v
 }
-
 
 GetServerList() {
 	l_List := []
@@ -334,118 +375,110 @@ GetServerList() {
 	return l_List
 }
 
-
 }
 
-
-{ ;----------------------------------------------ngrok----------------
-
-ngrok_run() {
-	global ngrok_pid
-	detecthiddenwindows,on
-	if ngrok_enable and not WinExist("ahk_exe ngrok.exe")
-		Run,ngrok tcp 25565,, % debug ? A_Space : "hide", ngrok_pid
-}
-
-ngrok_stop() {
-	global ngrok_pid
-	detecthiddenwindows,on
-	WinClose, ahk_exe ngrok.exe
-}
-
-ngroksetup() {
-	global
-	gui, ngroksetup:new
-	gui, +AlwaysOnTop
-	gui, font, s%FontNormal%
-	gui, add, Link,, Ngrok is a free service to open your server to the public. Set up an ngrok account <a href="https://ngrok.com/">here</a>.`n`nAfter creating your ngrok account, enter your account AuthToken below.
-	gui, add, Edit, vngrok_authtoken w150
-	gui, add, CheckBox, vngrok_enable Checked%ngrok_enable%, Use ngrok to connect to your server
-	gui, font, s%FontLarge%
-	gui, add, Button, gButton_ngrok_OK, OK
-	gui, show, Autosize Center
-}
-
-Button_ngrok_OK() {
-	global ngrok_authtoken
-	gui, ngroksetup:submit
-	runwait, ngrok authtoken %ngrok_authtoken%,,hide
-	IniWrite, %ngrok_enable%, QuickServer.ini, ngrok, ngrok_enable
-	gui, ngroksetup:destroy
-	toggle := ngrok_enable ? ngrok_run() : ngrok_stop()
-	If ngrok_enable and not FileExist("ngrok.exe") {
-		Throw Exception("Ngrok installation failed. Connect to the internet and restart QuickServer to try again")
+Class NgrokHandler { ; --------------Ngrok-----------------------------------
+	Run() {
+		DetectHiddenWindows, on		
+		If (this.enable = true) and not WinExist("ahk_exe ngrok.exe") {
+			Run,ngrok tcp 25565,, % debug ? A_Space : "hide", ngrok_pid
+			this.pid := ngrok_pid
+		}
+		Else if not this.enable {
+			this.Stop()
+		}
 	}
-}
-
-Getngrok_enable() {
-	return IniRead("QuickServer.ini", "ngrok", "ngrok_enable", true)
-}
-
-}
-
-
-{ ;----------------------------------------Connections Window
-
-class ConnectionsWindow {
-	static IsOpen := false
+	Stop() {
+		detecthiddenwindows,on
+		WinClose, ahk_exe ngrok.exe
+	}
+	Setup() {
+		ngrokgui := new Gui("+alwaysOnTop", "Ngrok Setup")
+		ngrokgui.Font("s" . FontNormal)
+		ngrokgui.Add("Link",,"Ngrok is a free service to open your server to the public. Set up an ngrok account <a href=""https://ngrok.com/"">here</a>.`n`nAfter creating your ngrok account, enter your account AuthToken below.")
+		this.authtokenctrl := ngrokgui.Add("Edit", "w150")
+		this.enablectrl := ngrokgui.add("checkbox", "Checked" . this.Enable, "Use ngrok to connect to your server")
+		ngrokgui.add("button","default", "   OK   ").OnEvent(this.onButtonOK.Bind(this))
+		ngrokgui.OnEvent(this.onclose.bind(this), "Close")
+		
+		ngrokgui.Show("Autosize Center")
+	}
+	OnClose(event)
+	{
+		Event.Gui.Destroy()
+	}
+	OnButtonOK(Event) {
+		ngrok_authtoken := this.authtokenctrl.Contents
+		this.Enable := ngrok_enable := this.enablectrl.Contents
+		If ngrok_authtoken
+			runwait, ngrok authtoken %ngrok_authtoken%,,hide
+		
+		void := ngrok_enable ? this.run() : this.stop()
+		If ngrok_enable and not FileExist("ngrok.exe")
+			Throw Exception("Ngrok installation failed. Connect to the internet and restart QuickServer to try again")
+		
+		Event.Gui.Destroy()
+	}
 	
-	Close() {
-		this.IsOpen := (this.IsOpen <= 0) ? 0 : this.IsOpen - 1
-		if not this.IsOpen {
-			gui, Connections:destroy
-			ngrok_stop()
+	Enable[] {
+		get {
+			return IniRead("QuickServer.ini", "ngrok", "ngrok_enable", -1)
+		}
+		set {
+			IniWrite, %value%, QuickServer.ini, ngrok, ngrok_enable
+			return value
 		}
 	}
 	
-	Open() {
-		static
-		global ConnectionsWindowPress
-		this.IsOpen += 1
-		ngrok_run()
+	Pid := ""
+}
+
+{ ;----------------------------------Connections Window
+
+class ConnectionsWindow {
+	
+	Include(Guiobj) {
 		FileCreateDir, %A_Temp%\QuickServer
-		gui, Connections:new
-		gui, +LastFound +AlwaysOnTop
-		WinSetTitle, Connections
-		gui, font, % "s" . FontNormal
+		Guiobj.Add("Text","xm","Click a connection below for more info and setup`nUse Ngrok if you don't know where to start.")
 		width := FontNormal * 70
-		gui, add, Text,, Click a connection to set it up or modify it.`n`nNgrok is recommended for first-time users.
-		gui, add, ListView, % "w" . width . " AltSubmit Count4 Disabled vConnectionsWindowPress gConnectionsWindowPress Grid R5 noSortHdr", Name|Address|Status|Connectivity
-		guicontrol, -Redraw, ConnectionsWindowPress
-		LV_Add("","Local Computer", "LOCALHOST", "Connected", "This computer only")
-		LV_Add("","LAN","","","This WiFi network only")
-		LV_Add("","Public IP Address   ","","","Public")
-		ngroklink := this.ngrok_CheckConnection()
-		LV_Add("","Ngrok","","", "Public")
-		LV_ModifyCol(1,"AutoHdr")
-		LV_ModifyCol(2,FontNormal * 20)
-		LV_ModifyCol(3,FontNormal * 15)
-		LV_ModifyCol(4,"AutoHdr")
-		gui, add, Text, vConnectionsWindowRefreshing,Refreshing...
-		gui, add, Button, gConnectionsWindowRefresh vConnectionsWindowRefresh, Refresh
-		Gui, show, Autosize Center
-		this.Refresh()
+		this.ListCtrl := Guiobj.Add("ListView", "w" . width . " AltSubmit Count4 Grid R5 noSortHdr", "Name|Address|Status|Connectivity")
+		
+		this.ListCtrl.LV_Add("","Local Computer", "LOCALHOST", "Connected", "This computer only")
+		this.ListCtrl.LV_Add("","LAN","","","This WiFi network only")
+		this.ListCtrl.LV_Add("","Public IP Address   ","","","Public")
+		this.ListCtrl.ngroklink := this.ngrok_CheckConnection()
+		this.ListCtrl.LV_Add("","Ngrok","","", "Public")
+		this.ListCtrl.LV_ModifyCol(1,"AutoHdr")
+		this.ListCtrl.LV_ModifyCol(2,FontNormal * 20)
+		this.ListCtrl.LV_ModifyCol(3,FontNormal * 15)
+		this.ListCtrl.LV_ModifyCol(4,"AutoHdr")
+		this.ListCtrl.OnEvent("ConnectionsWindowPress")
+		
+		this.refreshCtrl := Guiobj.Add("Button","Disabled","Refreshing...")
+		this.refreshCtrl.OnEvent(ConnectionsWindow.Refresh.Bind(this))
 	}
 	
 	Refresh() {
-		global ConnectionsWindowPress, ConnectionsWindowRefresh, ConnectionsWindowRefreshing
-		If not this.IsOpen
-			return
+		this.refreshCtrl.Enabled := false
+		this.refreshCtrl.Text := "Refreshing..."
 		
-		guicontrol, disable, ConnectionsWindowRefresh
-		guicontrol,,ConnectionsWindowRefreshing, Refreshing...
-		guicontrol, disable, ConnectionsWindowPress
-		guicontrol, -Redraw, ConnectionsWindowPress
 		LANIP := (A_IPAddress1 = 0.0.0.0) ? "" : A_IPAddress1
-		LV_Modify(2,"Col2",LANIP, this.LAN_CheckConnection() ? "Connected" : (LANIP ? "Probably not connected" : "Not connected"))
 		PublicIP := this.PublicIP_CheckConnection()
-		LV_Modify(3,"Col2",PublicIP,PublicIP ? "Unknown" : "Not connected")
-		ngroklink := this.ngrok_CheckConnection()
-		LV_Modify(4,"Col2",ngroklink,ngroklink ? "Connected" : "Not Connected")
-		guicontrol, enable, ConnectionsWindowPress
-		guicontrol, +Redraw, ConnectionsWindowPress
-		guicontrol,,ConnectionsWindowRefreshing, % A_Space
-		guicontrol, enable, ConnectionsWindowRefresh
+		If ngrok.Enable {
+			ngroklink := this.ngrok_CheckConnection()
+			ngrok_con := ngroklink ? "Connected" : "Not Connected"
+		} else {
+			ngroklink := ""
+			ngrok_con := "Disabled"
+		}
+		
+		this.ListCtrl.LV_Modify(2,"Col2",LANIP, this.LAN_CheckConnection() ? "Connected" : (LANIP ? "Probably not connected" : "Not connected"))
+		this.ListCtrl.LV_Modify(3,"Col2",PublicIP,PublicIP ? "Unknown" : "Not connected")
+		this.ListCtrl.LV_Modify(4,"Col2",ngroklink,ngrok_con)
+		
+		this.refreshCtrl.Text := "Refresh"
+		this.refreshCtrl.Enabled := true
+		
 	}
 	
 	LAN_CheckConnection() {
@@ -494,31 +527,33 @@ class ConnectionsWindow {
 	}
 }
 
-ConnectionsWindowRefresh() {
-	ConnectionsWindow.Refresh()
-}
 
-ConnectionsWindowPress() {
+ConnectionsWindowPress(Event) {
 	critical
-	If (A_GuiEvent = "Normal")
+	
+	If not (Event.EventType = "Normal")
+		return
+	
+	If (Event.GuiEvent = "Normal")
 	{
 		critical off
-		If (A_EventInfo = 1) {
+		If (Event.EventInfo = 1) {
 			msgbox,0x40000,Local Computer,If you are playing Minecraft on this computer, you can connect to the server by using LOCALHOST as the server address.
 		}
-		If (A_EventInfo = 2) {
+		If (Event.EventInfo = 2) {
 			msgbox,0x40000,LAN,Anyone else playing on your LAN (a.k.a. your WiFi network) can connect to this address. However, you might need to mark the network as "private" (on your computer go to Settings > Network and Internet > Change Connection Properties)
 		}
-		If (A_EventInfo = 3) {
-			gui, PublicIP:new
-			gui, +AlwaysOnTop
-			gui, font, s%FontNormal%
-			gui, add, Link,,<a href="https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router">Setup Port Forwarding</a> to use a permanent IP address for your server (note: Minecraft uses the port 25565)`n`nOnce you have set up port forwarding`, you can optionally connect it to a permanent`ncustom address (i.e. <a>MyServerIsCool.com</a>)
-			gui, add, Button, default gPublicIPGuiClose, Ok
-			gui, show, autosize center
+		If (Event.EventInfo = 3) {
+			publicIp := new Gui("AlwaysOnTop","Public IP Address")
+			publicIp.font("s" . FontNormal)
+			publicIp.add("Link",,"<a href=""https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"">Setup Port Forwarding</a> to use a permanent IP address for your server (note: Minecraft uses the port 25565)`n`nOnce you have set up port forwarding`, you can optionally connect it to a permanent`ncustom address (i.e. <a>MyServerIsCool.com</a>)")
+			clsbtn := publicIp.add("Button", "default", "Ok")
+			publicIp.Show("autosize center")
+			publicIp.Wait()
+			publicIp.Destroy()
 		}
-		If (A_EventInfo = 4) {
-			ngroksetup()
+		If (Event.EventInfo = 4) {
+			ngrok.setup()
 		}
 	}
 }
@@ -537,11 +572,7 @@ PublicIPGuiClose() {
 }
 }
 
-
-
-
-
-class Server { ;-------------------------Class Server-----------------------------------------------
+class Server { ;---------------------Class Server-----------------------------------------------
 	
 	name[] {
 		get {
@@ -598,29 +629,29 @@ class Server { ;-------------------------Class Server---------------------------
 			{
 				return "UHC"
 			}
-			If Bool(this.props.getKey("hardcore"))
+			If Bool(this.props["hardcore"])
 			{
 				return "Hardcore"
 			}
-			return this.props.getKey("difficulty")
+			return this.props["difficulty"]
 				
 		}
 		set {
 			If (value = "UHC")
 			{
 				this.UHC := true
-				this.props.setKey("hardcore", "true")
+				this.props["hardcore"] := "true"
 				return
 			}
 			If (value = "Hardcore")
 			{
 				this.UHC := false
-				this.props.setKey("hardcore", "true")
+				this.props["hardcore"] := "true"
 				return
 			}
 			this.UHC := false
-			this.props.setKey("difficulty", value)
-			this.props.setKey("hardcore", "false")
+			this.props["difficulty"] := value
+			this.props["hardcore"] := "false"
 		}
 	}
 	UHC[] {
@@ -640,32 +671,47 @@ class Server { ;-------------------------Class Server---------------------------
 			}
 		}
 	}
+	EULAAgree[] {
+		get {
+			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "EULAAgree", false) ? true : eulaAgree(this.uniquename)
+		}
+		set {
+			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, EULAAgree
+		}
+	}
+	props := {}
 	
 	__New(uniquename := "") {
 		this.uniquename := uniquename
-		this.props := new properties(this.uniquename . "\server.properties")
 	}
 	
 		
-	create() {
+	create(name := "New Server") {
 		this.version := "latest"
-		this.uniquename := UniqueFolderCreate(this.uniquename)
+		this.uniquename := UniqueFolderCreate("Server")
 		if not this.uniquename
 			throw Exception("Missing server", -1)
-		this.name := "New Server"
+		this.name := name
 		if not this.Rename()
 			return false
-		If not eulaAgree(this.uniquename)
-			return false
+		success := this.EULAAgree
 		this.UpdateThisServer()
 		this.props := new properties(this.uniquename . "\server.properties")
-		this.props.setKey("motd", this.name)
+		this.LoadProps()
+		this.props["motd"] := this.name
+		this.FlushProps()
 		this.RAM := defaultRAM
 		this.DateModified := A_Now
 		return true
 	}
 	
-	start() {
+	start(Event := "") {
+		If (Event.EventType = "Normal")
+		{
+			this.Save(Event)
+		}
+		if not this.EULAAgree
+			return false
 		RAM := this.RAM
 		JarFile := this.JarFile
 		If not FileExist(JarFile) or not InStr(JarFile, ".jar") {
@@ -676,114 +722,167 @@ class Server { ;-------------------------Class Server---------------------------
 			return
 		}
 		uniquename := this.uniquename
-		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui
+		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui 2> errorlog.log
+		try FileDelete, % this.uniquename . "\errorlog.log"
 		ServerPID := RunTer(cmd, this.name, uniquename)
 		this.DateModified := A_Now
 		
-		ngrok_run()
-		sleep, 10000
+		sleep, 2000
+		FileRead,errorlog, % this.uniquename . "\errorlog.log"
+		if InStr(errorlog,"Outdated") {
+			MsgBox, 52, Outdated Server, This server needs to be updated. Would you like to update it now?`nThe server will start in 20 seconds., 16
+			IfMsgBox, Yes
+			{
+				this.UpdateThisServer()
+				return false
+			}
+			IfMsgBox, Cancel
+			{
+				return false
+			}
+		}
+		sleep, 5000
 		ConnectionsWindow.Open()
 		Process, WaitClose, %ServerPID%
 		ConnectionsWindow.Close()
 	}
 	
-	Settings(flush := false) {
-		static
-		If flush {
-			this.props.setKey("motd", motd)
-			this.props.setKey("gamemode", gamemode)
-			this.props.setKey("level-seed", level_seed)
-			this.props.setKey("max-players", max_players)
-			this.props.setKey("spawn-protection", spawn_protection)
-			this.props.setKey("spawn-monsters", String(spawn_monsters))
-			this.props.setKey("spawn-npcs", String(spawn_npcs))
-			this.props.setKey("spawn-animals", String(spawn_animals))
-			this.props.setKey("pvp", String(pvp))
-			this.RAM := RAM
-			this.difficulty := difficulty
-			gui, %settingsname%:destroy
-			return
+	Ctrls := {}
+	Ctrlprop := {}
+	
+	Settings() {
+		this.LoadProps()
+		
+		settingsgui := new Gui(,"Server Properties")
+		settingsgui.OnEvent(Server.Save.Bind(this),"Close")
+		settingsgui.font("s" . FontLarge)
+		settingsgui.add("Text",,this.name)
+		settingsgui.font("s" . FontNormal)
+		
+		settingsgui.Add("Tab3","Choose2", "File|Edit|Plugins and Datapacks").OnEvent(Server.TabChange.Bind(this))
+		settingsgui.Tab(1)
+		settingsgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
+		settingsgui.add("Button","ys w" . FontNormal * 15, "Rename").OnEvent(Server.Rename.Bind(this))
+		settingsgui.add("text","xs", "Current version: " . this.version . "`nPress the button below to either update the current version to the latest build`n(i.e. if the server says it is out of date) or upgrade the server to a newer`nversion of Minecraft.")
+		settingsgui.add("Button","xs w" . FontNormal * 15, "Update/Upgrade").OnEvent(Server.UpdateThisServer.Bind(this))
+		settingsgui.add("Button","xs section w" . FontNormal * 15, "Backup").OnEvent(Server.Backup.Bind(this))
+		settingsgui.add("Button","ys w" . FontNormal * 15, "Duplicate").OnEvent(Server.Duplicate.Bind(this))
+		settingsgui.add("Button","ys w" . FontNormal * 15, "Delete server").OnEvent(Server.Delete.Bind(this))
+		
+		
+		settingsgui.tab(3)
+		settingsgui.add("text",, "Easily import Spigot Plugins and datapacks!")
+		settingsgui.Add("Link",,"You can find plugins at <a href=""https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count""> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.`nIt is recommended that you backup your server before using plugins.")
+		settingsgui.add("Button",, "Backup").OnEvent(Server.Backup.Bind(this))
+		
+		new PluginsGUI(settingsgui, "Plugins", this.uniquename)
+		new PluginsGUI(settingsgui, "Datapacks", this.uniquename)
+		
+		
+		
+		settingsgui.tab(2)
+		settingsgui.add("link",, "Server Description (a.k.a MOTD`; as seen on Multiplayer menu).`nGo to <a href=""https://minecraft.tools/en/motd.php"">https://minecraft.tools/en/motd.php</a> to generate nice-looking MOTD")
+		this.ctrls["motd"] := settingsgui.add("Edit","w" . FontNormal * 70,this.props["motd"])
+		
+		this.ctrls["gamemode"] := settingsgui.add("DropDownList","section", "Survival|Creative|Adventure")
+		settingsgui.add("text","ys", "Gamemode")
+		this.ctrls["gamemode"].ChooseString(this.props["gamemode"])
+		
+		
+		this.ctrlprop["difficulty"] := settingsgui.add("DropDownList", "xs section", "Peaceful|Easy|Normal|Hard|Hardcore|UHC")
+		settingsgui.add("text"," ys", "Difficulty")
+		this.ctrlprop["difficulty"].ChooseString(this.difficulty)
+				
+		this.ctrls["pvp"] := settingsgui.add("CheckBox","xs Checked" . Bool(this.props["pvp"]), "Allow PVP (player vs player)")
+		this.ctrls["pvp"].IsBool := true
+		
+		
+		this.ctrls["level-seed"] := settingsgui.add("Edit","xs section",this.props["level-seed"])
+		settingsgui.add("text","ys", "Custom World Seed")
+		
+		settingsgui.add("Edit","xs section")
+		this.ctrls["max-players"] := settingsgui.add("UpDown",, this.props["max-players"])
+		settingsgui.add("text"," ys", "Maximum players")
+		
+		
+		settingsgui.add("Edit","xs section")
+		this.ctrls["spawn-protection"] := settingsgui.add("UpDown", , this.props["spawn-protection"])
+		settingsgui.add("text","ys", "Spawn Grief-Protection Radius")
+		
+		this.ctrls["spawn-monsters"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-monsters"])
+			, "Automatically Spawn Monsters")
+		this.ctrls["spawn-monsters"].IsBool := true
+		 
+		this.ctrls["spawn-npcs"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-npcs"])
+			, "Automatically Spawn NPCs (Villagers)")
+		this.ctrls["spawn-npcs"].IsBool := true
+		
+		this.ctrls["spawn-animals"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-animals"])
+			, "Automatically Spawn Animals")
+		this.ctrls["spawn-animals"].IsBool := true
+		
+		this.ctrls["enable-command-block"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["enable-command-block"])
+			, "Allow Command Blocks")
+		this.ctrls["enable-command-block"].IsBool := true
+		
+		
+		settingsgui.add("Edit","xs section")
+		this.ctrlprop["RAM"] := settingsgui.add("UpDown", ,this.RAM)
+		settingsgui.add("text","ys", "Maximum Server Memory (in Gigabytes)")
+		
+		settingsgui.add("Link", "xs section", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
+		settingsgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
+		
+		settingsgui.add("Button", "xs default", "Revert Settings").OnEvent(Server.ReloadSettings.Bind(this))
+		
+		
+		settingsgui.show("Autosize Center")
+		this.SettingsWin := settingsgui
+	}
+	FlushProps() {
+		FilePath := this.uniquename . "\server.properties"
+		For key, ctrl in this.ctrls
+		{
+			this.props[key] := ctrl.IsBool ? String(ctrl.Contents) : ctrl.Contents
+		}
+		For key, ctrl in this.ctrlprop
+		{
+			this[key] := ctrl.Contents
+		}
+		For key, value in this.props
+		{
+			filewrite := filewrite . "`n" . key . "=" . value
+		}
+		try FileDelete, % FilePath
+		FileAppend, % filewrite, % FilePath
+	}
+	LoadProps() {
+		FilePath := this.uniquename . "\server.properties"
+		If not FileExist(FilePath)
+			DefaultPropertiesFile(FilePath)
+		FileRead, completefile, % FilePath
+		For index, val in StrSplit(completefile, "`n", "`r`t")
+		{
+			if not (val = "") and not (InStr(val, "#") = 1) ; not empty line and not comment line
+			{
+				v := StrSplit(val,"=",,2)
+				this.props[v[1]] := v[2]
+			}
 		}
 		
-		;settings menu
-		settingsname := this.uniquename
-		buttonname := ""
-		btn_func := Func("SettingsButtonPush").Bind(this, buttonname, settingsname)
-		
-		
-		gui, %settingsname%:new
-		gui, +LastFound
-		gui, font, s%FontLarge%
-		gui, add, Text,, % this.name
-		gui, font, s%FontNormal%
-		gui, add, Button, vs_Start, Start Server!
-		guicontrol, +g, s_Start, %btn_func%
-		gui, add, Button, vs_Rename, Rename Server
-		guicontrol, +g, s_Rename, %btn_func%
-		gui, add, text, vs_version, % "Current version: " . this.version . "`nPress the button below to either update                         `nthe current version to the latest build`n(i.e. if the server says it is out of date)`nor upgrade the server to a newer`nversion of Minecraft."
-		gui, add, Button, vs_Update, Change version or update to latest build
-		guicontrol, +g, s_Update, %btn_func%
-		gui, add, Button, vs_Backup, Create a backup of this server
-		guicontrol, +g, s_Backup, %btn_func%
-		gui, add, Button, vs_Duplicate, Duplicate this server
-		guicontrol, +g, s_Duplicate, %btn_func%
-		gui, add, Button, vs_Delete, Delete this server
-		guicontrol, +g, s_Delete, %btn_func%
-		
-		gui, add, text,ym,   
-		
-		
-		
-		gui, add, link, vs_Plugins, <a>Server Plugins</a> -- Easily import and manage plugins!
-		guicontrol, +g, s_Plugins, %btn_func%
-		gui, add, text,, Server Description (appears on Multiplayer menu)
-		gui, add, Edit, Limit59 vmotd
-		guicontrol,, motd, % this.props.getKey("motd")
-		gui, add, text,, Gamemode
-		gui, add, DropDownList, vgamemode, Survival|Creative|Adventure
-		guicontrol, ChooseString, gamemode, % this.props.getKey("gamemode")
-		gui, add, text,, Difficulty
-		gui, add, DropDownList, vdifficulty, Peaceful|Easy|Normal|Hard|Hardcore|UHC
-		guicontrol, ChooseString, difficulty, % this.difficulty
-		pvp := Bool(this.props.getKey("pvp"))
-		gui, add, CheckBox, vpvp Checked%pvp%, Allow PVP (player vs player)
-		gui, add, text,, Custom World Seed
-		gui, add, Edit, vlevel_seed, % this.props.getKey("level-seed")
-		gui, add, text,, Maximum players
-		gui, add, Edit
-		gui, add, UpDown, vmax_players, % this.props.getKey("max-players")
-		
-		gui, add, text,, Spawn Grief-Protection Radius
-		gui, add, Edit
-		gui, add, UpDown, vspawn_protection, % this.props.getKey("spawn-protection")
-		spawn_monsters := Bool(this.props.getKey("spawn-monsters"))
-		gui, add, CheckBox, vspawn_monsters Checked%spawn_monsters%, Automatically Spawn Monsters
-		spawn_npcs := Bool(this.props.getKey("spawn-npcs"))
-		gui, add, CheckBox, vspawn_npcs Checked%spawn_npcs%, Automatically Spawn NPCs (Villagers)
-		spawn_animals := Bool(this.props.getKey("spawn-animals"))
-		gui, add, CheckBox, vspawn_animals Checked%spawn_animals%, Automatically Spawn Animals
-		gui, add, text,, Maximum Server Memory (in Gigabytes)
-		gui, add, Edit
-		RAM := this.RAM
-		gui, add, UpDown, vRAM, %RAM%
-		gui, add, Link, vs_Advanced, <a>Advanced Settings</a>`n
-		guicontrol, +g, s_Advanced, %btn_func%
-		gui, add, Link, vs_OpenFolder, <a> Open the Server Folder </a>
-		guicontrol, +g, s_OpenFolder, %btn_func%
-		
-		
-		
-		gui, add, Button, default vs_Save, Save Settings
-		guicontrol, +g, s_Save, %btn_func%
-		gui, show, Autosize Center
 	}
-	
-	Save() {
-		this.settings(true) ;saves the settings onto the disk
+	Save(Event := "") {
+		this.FlushProps()
 		this.DateModified := A_Now
+		this.SettingsWin.Destroy()
 	}
 	
-	UpdateThisServer() {
+	ReloadSettings() {
+		this.SettingsWin.Destroy()
+		this.Settings()
+	}
+	
+	UpdateThisServer(Event := "") {
 		InputBox, newversion, Update or Select Version, Enter the desired version(example: 1.16.1).`n`nType "latest" to use the latest version.,,,,,,,, % this.version
 		If not Errorlevel {
 			UpdateResult := UpdateServer(newversion)
@@ -792,6 +891,10 @@ class Server { ;-------------------------Class Server---------------------------
 			this.Version := UpdateResult.version
 			this.JarFile := UpdateResult.uniquename
 			this.UseLatest := UpdateResult.IsLatest
+		}
+		If (Event.EventType = "Normal") {
+			this.Save()
+			this.Settings()
 		}
 	}
 	Backup() {
@@ -803,11 +906,18 @@ class Server { ;-------------------------Class Server---------------------------
 		}
 	}
 	
-	Rename() {
+	Rename(Event := "") {
+		
 		InputBox, NewName, QuickServer, Enter a new name for your server.,,,,,,,, % this.name
 		If Errorlevel
 			return false
 		this.name := SubStr(NewName,1,50)
+		ChooseServerWindow()
+		If (Event.EventType = "Normal")
+		{
+			this.SettingsWin.Destroy()
+			this.Settings()
+		}
 		return true
 	}
 	
@@ -828,159 +938,119 @@ class Server { ;-------------------------Class Server---------------------------
 		Ifmsgbox, Yes
 		{
 			FileRecycle, % this.uniquename
-			ChooseServerWindow()			
+			ChooseServerWindow()
+			this.SettingsWin.Destroy()
 		}
 	}
-}
+	
+	AskSave(Event) {
+		MsgBox, 262195, Server Settings, Would you like to save changes first?
+		IfMsgBox, Yes
+		{
+			this.Save()
+			Event.Gui.Destroy()
+			return false
+		}
+		IfMsgBox, No
+		{
+			Event.Gui.Destroy()
+			return false
+		}
+		IfMsgBox, Cancel
+		{
+			Event.NoClose := true
+			return true
+		}
+	}
 
-SettingsButtonPush(byref this, byref buttonname, settingsname) {
-	gui, %settingsname%:default
-	buttonname := A_GuiControl
-	If (buttonname = "s_Plugins") {
-		PluginsGUI(this)
-		return
-	}
-	gui, submit
-	ChooseServerWindow()
-	this.save()
-	If (buttonname = "s_Delete") {
-		this.Delete()
-	}
-	Else If (buttonname = "s_Duplicate") {
-		this.Duplicate()
-	}
-	Else If (buttonname = "s_Advanced") {
+	s_Advanced(Event) {
+		this.save()
 		run, % "notepad.exe """ . this.uniquename . "\server.properties""",,max
 	}
-	Else if (buttonname = "s_Update") {
-		this.UpdateThisServer()
-		this.Settings()
-	}
-	Else if (buttonname = "s_Start") {
-		this.Start()
-	}
-	Else if (buttonname = "s_OpenFolder") {
+
+	s_OpenFolder(Event) {
 		openfolder := this.uniquename
 		run, explore %openfolder%
 	}
-	Else if (buttonname = "s_Backup") {
-		this.backup()
-	}
-	Else if (buttonname = "s_Rename") {
-		this.Rename()
-		this.settings()
-	}
+	
 }
 
-{ ;--------------------------------------Plugins Window ---
-
-PluginsGUI(byref this) {
-	static
-	msgbox, 0x33, Plugins, It is recommended to backup your world before you modify plugins. Do this now?
-	IfMsgBox, Cancel
-		return "cancel"
-	IfMsgBox, Yes
-		this.backup()
+Class PluginsGUI { ;-----------------Plugins Window ---
+	__New(Guiobj, type, uniquename) {
+		this.type := type
+		this.uniquename := uniquename
+		this.Folder := (type = "plugins") ? "plugins" : "world\datapacks"
+		this.ext := (type = "plugins") ? ".jar" : ".zip"
 		
-		
-	Gui, plugins:destroy
-	
-	Gui, plugins:new
-	Gui, font, s%FontNormal%
-	Gui, add, link,, Browse for Plugins at <a href="https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count"> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.
-	Gui, add, Button,vImportButton gPluginsGUI_Import,Import Plugins
-	ImportFunc := Func("PluginsGUI_Import").Bind(this)
-	GuiControl, +g, ImportButton, %ImportFunc%
-	Gui, add, Text,,Plugins on this server (checkmark = enabled):
-	Gui, add, ListView,vpluginlist AltSubmit Checked R15 Sort -Hdr, Name
-	CheckFunc := Func("PluginsGUI_Modify").Bind(this)
-	GuiControl, +g, pluginlist, %CheckFunc%
-	Loop, Files, plugins\*.jar
-	{
-		Options := " "
-		If FileExist(this.uniquename . "\plugins\" . A_LoopFileName)
-			Options .= "Check"
-		LV_Add(Options, StrReplace(A_LoopFileName,".jar"))
-	}
-	Gui, show, autosize center
-	
-	
-}
-
-PluginsGUI_Modify(byref this) {
-	critical
-	Event := ErrorLevel
-	If not (A_GuiEvent == "I")
-		return
-	If InStr(Event, "C", true) {
-		LV_GetText(PluginName, A_EventInfo)
-		FileCreateDir, % this.uniquename . "\plugins"
-		try FileCopy, % "plugins\" . PluginName . ".jar", % this.uniquename . "\plugins\" . PluginName . ".jar"
-	}
-	Else If InStr(Event, "c", true) {
-		LV_GetText(PluginName, A_EventInfo)
-		FileDelete, % this.uniquename . "\plugins\" . PluginName . ".jar"
-	}
-	critical, off
-}
-
-PluginsGUI_Import(byref this) {
-	FileCreateDir, plugins
-	FileCreateDir, % this.uniquename . "\plugins"
-	FileSelectFile, FileList,M 1,,Import Plugins,Spigot Plugins (*.jar)
-	If ErrorLevel
-		return
-	Loop, Parse, FileList, `n
-	{
-		if (A_Index = 1) {
-			Container := A_LoopField
-			continue
+		Guiobj.Add("Button",,"Import " . type).OnEvent(PluginsGUI.Import.Bind(this))
+		this.LV := Guiobj.Add("ListView", "AltSubmit Checked R7 Sort", "Enabled " . type)
+		this.LV.OnEvent(PluginsGUI.Modify.Bind(this), "Normal")
+		this.LV.OnEvent(PluginsGUI.Import.Bind(this), "DropFiles")
+		Loop, Files, % this.Folder . "\*" . this.ext
+		{
+			Options := " "
+			If FileExist(this.uniquename . "\" . this.Folder . "\" . A_LoopFileName)
+				Options .= "Check"
+			this.LV.LV_Add(Options, A_LoopFileName)
 		}
-		LV_Add("Check",StrReplace(A_LoopField,".jar"))
-		FileCopy, % Container . "\" . A_LoopField, % "plugins\" . A_LoopField
-		try FileCopy, % "plugins\" . A_LoopField, % this.uniquename . "\plugins\" . A_LoopField
-	}
-}
-
-}
-
-class properties {
 		
-	__New(FilePath) {
-		this.FilePath := FilePath
-		If not FileExist(this.FilePath)
-			DefaultPropertiesFile(this.FilePath)
-	}
-
-	GetKey(key) {
-			FileRead, completeproperties, % this.FilePath
-			completeproperties := "`r`n" . completeproperties
-			startwkey := Substr(completeproperties, Instr(completeproperties, "`n" . key . "="))
-			split := StrSplit(startwkey, ["=" , "`r`n"])
-			value := split[2]
-			return value
 	}
 	
-	SetKey(Key, Value) {
-		FileRead, completeproperties, % this.FilePath
-		Position := 1 + Instr(completeproperties, "`n" . Key . "=")
-		firsthalf := Substr(completeproperties, 1, Position - 1)
-		startwkey := startwkey := Substr(completeproperties, Position)
-		split := StrSplit(startwkey, "`r`n")
+	Modify(Event) {
+		critical
+		If not (Event.GuiEvent == "I")
+			return
 		
-		filerecreate := firsthalf . key . "=" . Value
-		For Index, fileline in split {
-			If not (Index = 1)
-				filerecreate = %filerecreate%`r`n%fileline%
-			
+		If Instr(Event.ErrorLevel, "C", true) {
+			critical, off
+			this.LV.LV_GetText(PluginName, Event.EventInfo)
+			FileCreateDir, % this.uniquename . "\" . this.Folder
+			try FileCopy, % this.Folder . "\" . PluginName, % this.uniquename . "\" . this.Folder . "\" . PluginName
 		}
-		try FileDelete, % this.FilePath
-		FileAppend, %filerecreate%, % this.FilePath
+		Else If InStr(Event.ErrorLevel, "c", true) {
+			critical, off
+			this.LV.LV_GetText(PluginName, Event.EventInfo)
+			FileDelete, % this.uniquename . "\" . this.Folder . "\" . PluginName
+		}
+		critical, off
+	}
+	
+	Import(Event) {
+		FileCreateDir, % this.Folder
+		FileCreateDir, % this.uniquename . "\" . this.Folder
+		If (Event.EventType = "DropFiles")
+		{
+			For index, file in Event.FileArray
+			{
+				Filename := StrSplit(file, "\").Pop()
+				this.LV.LV_Add("Check",Filename)
+				FileCopy, % file, % this.Folder . "\" . Filename
+				try FileCopy, % file, % this.uniquename . "\" . this.Folder . "\" . Filename
+			}
+		}
+		Else if (Event.EventType = "Normal")
+		{
+			FileSelectFile, FileList,M 1,,% "Import " . this.type, % (this.type = "plugins") ? "Spigot Plugins (*.jar)" : "Minecraft Datapacks (*.zip)"
+			If ErrorLevel
+				return
+			Loop, Parse, FileList, `n
+			{
+				if (A_Index = 1) {
+					Container := A_LoopField
+					continue
+				}
+				this.LV.LV_Add("Check",A_LoopField)
+				FileCopy, % Container . "\" . A_LoopField, % this.Folder . "\" . A_LoopField
+				try FileCopy, % this.Folder . "\" . A_LoopField, % this.uniquename . "\" . this.Folder . "\" . A_LoopField
+			}
+		}
 	}
 	
 }
+
+
 	
-{ ;---------------------------------------Technical----------
+{ ;----------------------------------Technical----------
 
 Bool(value) {
 	if (value = "false")
@@ -1061,7 +1131,7 @@ GetFontDefault() {
 
 }
 
-{ ;-----------------------------------------EULA-----------------------
+{ ;----------------------------------EULA-----------------------
 
 eulaAgree(ServerFolder) {
 	static EULAIAgree
@@ -1098,9 +1168,7 @@ eulaAgree_finishEULA() {
 
 }
 
-
-
-{ ;-------------------------------------Update---------------
+{ ;----------------------------------Update---------------
 UpdateServer(version := "latest") {
 	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
 		filecreatedir, %DefaultDir%\BuildTools
@@ -1177,7 +1245,7 @@ DownloadFailed(byref this) {
 }
 }
 
-{ ;-------------------------------------Misc----------------
+{ ;----------------------------------Misc----------------
 
 DefaultPropertiesFile(FilePath) {
 	FileAppend,
@@ -1204,7 +1272,7 @@ snooper-enabled=true
 level-type=default
 hardcore=false
 enable-status=true
-enable-command-block=false
+enable-command-block=true
 max-players=20
 network-compression-threshold=256
 resource-pack-sha1=
@@ -1305,4 +1373,9 @@ CopyFilesAndFolders(SourcePattern, DestinationFolder, DoOverwrite = false)
 	return ErrorCount
 }
 
+}
+
+{ ; -----------------------------    INCLUDES -------------------
+	return
+	#Include, %A_ScriptDir%\GuiObject.ahk
 }
