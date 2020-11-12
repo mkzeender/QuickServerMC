@@ -3,7 +3,7 @@
 global DefaultDir := A_AppData "\.QuickServer"
 global Enable_CheckForUpdates := true
 global defaultRAM := 2
-global debug := true
+global debug := false
 
 { ;--------------------------------  AUTORUN ----------------------------------
 
