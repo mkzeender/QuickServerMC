@@ -3,7 +3,7 @@
 global DefaultDir := A_AppData "\.QuickServer"
 global Enable_CheckForUpdates := true
 global defaultRAM := 2
-global debug := false
+global debug := true
 
 { ;--------------------------------  AUTORUN ----------------------------------
 
@@ -163,8 +163,7 @@ BuildServerWindow() {
 	Listctrl.OnEvent("SelectServer_ListView", "Normal")
 	global MainGui_ServerListView
 	MainGui_ServerListView := Listctrl
-	;ServerLV_Menu.Build()
-	;ListCtrl.OnEvent(ServerLV_Menu.Show.Bind(ServerLV_Menu), "ContextMenu")
+	ListCtrl.OnEvent(ServerLV_Menu.Show.Bind(ServerLV_Menu), "ContextMenu")
 	
 	MainGui.add("text","ym")   
 	MainGui.Font("s" . FontLarge)
@@ -189,7 +188,10 @@ Class ServerLV_Menu {
 		funcobj := ServerLV_Menu.ChooseItem.Bind(this)
 		Menu, ServerLV_Menu, Add,Run,%funcobj%
 		Menu, ServerLV_Menu, Default, Run
-		Menu, ServerLV_Menu, Add,Settings,%funcobj%
+		Menu, ServerLV_Menu, Add, Duplicate,%funcobj%
+		Menu, ServerLV_Menu, Add, Backup,%funcobj%
+		Menu, ServerLV_Menu, Add
+		Menu, ServerLV_Menu, Add,Properties,%funcobj%
 	}
 	Show(Event) {
 		this.uniquename := GetChosenUniquename()
@@ -197,10 +199,19 @@ Class ServerLV_Menu {
 	}
 	
 	ChooseItem(ItemName,ItemPos,MenuName) {
-		(ItemName = "Run") ? SelectServer_Run() : ""
-		(ItemName = "Settings") ? SelectServer_Settings()
+		  (ItemName = "Run") ? SelectServer_Run()
+		: (ItemName = "Properties") ? SelectServer_Settings()
+		: (ItemName = "Duplicate") ? this.Duplicate()
+		: (ItemName = "Backup") ? this.Backup()
+	}
+	Duplicate() {
+		(new Server(GetChosenUniquename())).Duplicate()
+	}
+	Backup() {
+		(new Server(GetChosenUniquename())).Backup()
 	}
 }
+
 { ;Main window buttons
 
 SelectServer_ListView(Event) {
@@ -330,7 +341,6 @@ SelectServer_Restore() {
 	SplashTextOff
 	ImportedServer := new Server(NewUniquename)
 	ImportedServer.name := ImportedServer.name . "--backup"
-	ImportedServer.Rename()
 	ChooseServerWindow()
 }
 
@@ -671,12 +681,29 @@ class Server { ;---------------------Class Server-------------------------------
 			}
 		}
 	}
-	EULAAgree[] {
+	Op_level[] {
 		get {
-			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "EULAAgree", false) ? true : eulaAgree(this.uniquename)
+		
 		}
 		set {
-			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, EULAAgree
+			this.props["op-permission-level"] := (value = "No Commands") ? 1
+				: (value = "Singleplayer Commands") ? 2
+				: (value = "Singleplayer and Multiplayer Commands") ? 3
+				: (value = "All Commands") ? 4
+			return 
+		}
+	}
+	EULAAgree[] {
+		get {
+			If IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "EULAAgree", false)
+				return true
+			
+			v := (new eulaWindow(this.uniquename)).IAgree
+			IniWrite(v,this.uniquename . "\QuickServer.ini","QuickServer","EULAAgree")
+			return v
+		}
+		set {
+			IniWrite(v,this.uniquename . "\QuickServer.ini","QuickServer","EULAAgree")
 		}
 	}
 	props := {}
@@ -686,20 +713,16 @@ class Server { ;---------------------Class Server-------------------------------
 	}
 	
 		
-	create(name := "New Server") {
+	create(name := "New World") {
 		this.version := "latest"
 		this.uniquename := UniqueFolderCreate("Server")
 		if not this.uniquename
 			throw Exception("Missing server", -1)
 		this.name := name
-		if not this.Rename()
+		If not this.EULAAgree
 			return false
-		success := this.EULAAgree
 		this.UpdateThisServer()
-		this.props := new properties(this.uniquename . "\server.properties")
-		this.LoadProps()
-		this.props["motd"] := this.name
-		this.FlushProps()
+		DefaultPropertiesFile(this.uniquename . "\server.properties")
 		this.RAM := defaultRAM
 		this.DateModified := A_Now
 		return true
@@ -724,7 +747,7 @@ class Server { ;---------------------Class Server-------------------------------
 		uniquename := this.uniquename
 		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui 2> errorlog.log
 		try FileDelete, % this.uniquename . "\errorlog.log"
-		ServerPID := RunTer(cmd, this.name, uniquename)
+		this.WinID := RunTer(cmd, this.name, this.uniquename)
 		this.DateModified := A_Now
 		
 		sleep, 2000
@@ -742,103 +765,182 @@ class Server { ;---------------------Class Server-------------------------------
 			}
 		}
 		sleep, 5000
-		ConnectionsWindow.Open()
-		Process, WaitClose, %ServerPID%
-		ConnectionsWindow.Close()
+	}
+	
+	IsRunning[] {
+		get {
+			return WinExist("ahk_id " . this.WinID)
+		}
 	}
 	
 	Ctrls := {}
 	Ctrlprop := {}
 	
-	Settings() {
+	Settings() { ;  -------Settings---------------
 		this.LoadProps()
 		
-		settingsgui := new Gui(,"Server Properties")
-		settingsgui.OnEvent(Server.Save.Bind(this),"Close")
-		settingsgui.font("s" . FontLarge)
-		settingsgui.add("Text",,this.name)
-		settingsgui.font("s" . FontNormal)
+		Lgui := new Gui(,"Server Properties")
+		this.SettingsWin := Lgui
+		Lgui.OnEvent(Server.Save.Bind(this),"Close")
+		Lgui.font("s" . FontLarge)
+		this.ctrlprop["name"] := Lgui.add("Edit","w" . FontNormal * 70,this.name)
+		Lgui.font("s" . FontNormal)
 		
-		settingsgui.Add("Tab3","Choose2", "File|Edit|Plugins and Datapacks").OnEvent(Server.TabChange.Bind(this))
-		settingsgui.Tab(1)
-		settingsgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
-		settingsgui.add("Button","ys w" . FontNormal * 15, "Rename").OnEvent(Server.Rename.Bind(this))
-		settingsgui.add("text","xs", "Current version: " . this.version . "`nPress the button below to either update the current version to the latest build`n(i.e. if the server says it is out of date) or upgrade the server to a newer`nversion of Minecraft.")
-		settingsgui.add("Button","xs w" . FontNormal * 15, "Update/Upgrade").OnEvent(Server.UpdateThisServer.Bind(this))
-		settingsgui.add("Button","xs section w" . FontNormal * 15, "Backup").OnEvent(Server.Backup.Bind(this))
-		settingsgui.add("Button","ys w" . FontNormal * 15, "Duplicate").OnEvent(Server.Duplicate.Bind(this))
-		settingsgui.add("Button","ys w" . FontNormal * 15, "Delete server").OnEvent(Server.Delete.Bind(this))
+		Lgui.Add("Tab3","Choose1"
+			, "General|Gameplay|World Generation|Plugins and Datapacks|Resource Pack|Security and Permissions").OnEvent(Server.TabChange.Bind(this))
 		
+		{ ; General
+		Lgui.Tab(1)
+			Lgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
+			
+			Lgui.add("link","xs", "`nServer Description (a.k.a MOTD`; as seen on Multiplayer menu).`nGo to <a href=""https://minecraft.tools/en/motd.php"">https://minecraft.tools/en/motd.php</a> to generate nice-looking MOTD")
+			this.ctrls["motd"] := Lgui.add("Edit","w" . FontNormal * 70,this.props["motd"])
+			
+			Lgui.add("text","xs", "`nCurrent version: " . this.version . "`nPress the button below to either update the current version to the latest build`n(i.e. if the server says it is out of date) or upgrade the server to a newer`nversion of Minecraft.")
+			Lgui.add("Button","xs w" . FontNormal * 15, "Update/Upgrade").OnEvent(Server.UpdateThisServer.Bind(this))
+			Lgui.add("text","xs"," ")
+			
+			Lgui.add("Edit","xs section")
+			this.ctrlprop["RAM"] := Lgui.add("UpDown", ,this.RAM)
+			Lgui.add("text","ys", "Maximum Server Memory (in Gigabytes)`n")
+			
+			Lgui.add("Button","xs section w" . FontNormal * 15, "Backup").OnEvent(Server.Backup.Bind(this))
+			Lgui.add("Button","ys w" . FontNormal * 15, "Duplicate").OnEvent(Server.Duplicate.Bind(this))
+			Lgui.add("Button","ys w" . FontNormal * 15, "Delete server").OnEvent(Server.Delete.Bind(this))
+			Lgui.add("text","xs section","`n")
+		}
 		
-		settingsgui.tab(3)
-		settingsgui.add("text",, "Easily import Spigot Plugins and datapacks!")
-		settingsgui.Add("Link",,"You can find plugins at <a href=""https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count""> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.`nIt is recommended that you backup your server before using plugins.")
-		settingsgui.add("Button",, "Backup").OnEvent(Server.Backup.Bind(this))
+		{ ; Gameplay
+		Lgui.tab(2)
+						
+			this.ctrls["gamemode"] := Lgui.add("DropDownList","section", "Survival|Creative|Adventure|Spectator")
+			Lgui.add("text","ys", "Default Gamemode")
+			this.ctrls["gamemode"].ChooseString(this.props["gamemode"])
+			
+			this.Add_CheckBox("force-gamemode","Force Gamemode (players' gamemodes reset to default when they rejoin)")
+			
+			this.ctrlprop["difficulty"] := Lgui.add("DropDownList", "xs section", "Peaceful|Easy|Normal|Hard|Hardcore|UHC")
+			Lgui.add("text"," ys", "Difficulty")
+			this.ctrlprop["difficulty"].ChooseString(this.difficulty)
+					
+			this.ctrls["pvp"] := Lgui.add("CheckBox","xs Checked" . Bool(this.props["pvp"]), "Allow PVP (player vs player)")
+			this.ctrls["pvp"].IsBool := true
+			
+			
+			this.Add_UpDown("view-distance", "Max Render Distance","Range3-32")
+			
+			this.Add_UpDown("entity-broadcast-range-percentage","Entity render distance (in blocks)", "Range0-500")
+			
+			
+			this.ctrls["spawn-monsters"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-monsters"])
+				, "Automatically Spawn Monsters")
+			this.ctrls["spawn-monsters"].IsBool := true
+			
+			this.ctrls["spawn-npcs"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-npcs"])
+				, "Automatically Spawn NPCs (Villagers)")
+			this.ctrls["spawn-npcs"].IsBool := true
+			
+			this.ctrls["spawn-animals"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-animals"])
+				, "Automatically Spawn Animals")
+			this.ctrls["spawn-animals"].IsBool := true
+			
+			Lgui.add("Link", "xs section", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
+			Lgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
+		}
 		
-		new PluginsGUI(settingsgui, "Plugins", this.uniquename)
-		new PluginsGUI(settingsgui, "Datapacks", this.uniquename)
+		{ ; World Generation
+		Lgui.tab(3)
+			Lgui.add("text","section","Some of these settings will only apply when generating the world for the first time`n")
+			this.ctrls["level-seed"] := Lgui.add("Edit","xs section",this.props["level-seed"])
+			Lgui.add("text","ys", "Custom World Seed")
+			
+			this.ctrls["level-type"] := Lgui.add("ComboBox", "xs section","Default|Flat|LargeBiomes|Amplified|Buffet")
+			this.ctrls["level-type"].Text := this.props["level-type"]
+			Lgui.add("text", "ys", "Generation type -- If you are using a custom plugin as a generator put its ID here")
+			
+			this.ctrls["generator-settings"] := Lgui.add("Edit", "xs section", this.props["generator-settings"])
+			Lgui.add("Text","ys","Generator Settings -- Used to customize flat, buffet, and plugin-made worlds")
+			
+			this.ctrls["generate-structures"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["generate-structures"])
+				, "Generate Structures")
+			this.ctrls["generate-structures"].IsBool := true
+		}
 		
+		{ ; Plugins and Datapacks
+		Lgui.tab(4)
+			Lgui.add("text",, "Easily import Spigot Plugins and datapacks!")
+			Lgui.Add("Link",,"You can find plugins at <a href=""https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count""> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.`nIt is recommended that you backup your server before using plugins.")
+			Lgui.add("Button",, "Backup").OnEvent(Server.Backup.Bind(this))
+			
+			new PluginsGUI(Lgui, "Plugins", this.uniquename)
+			new PluginsGUI(Lgui, "Datapacks", this.uniquename)
+		}
+			
+		{ ; Resource packs
+		Lgui.tab(5)
+			Lgui.add("text","section","Include a resource pack (texture pack) in this server")
+			this.Add_Edit("resource-pack","Resource Pack -- Paste a valid downloadable link to a resource/texture pack")
+			this.Add_Edit("resource-pack-sha1","SHA-1 -- Paste the file's SHA-1 hash here")
+			Lgui.add("Link","xs section","Try this link for help:`n<a href=""https://nodecraft.com/support/games/minecraft/adding-a-resource-pack-to-a-minecraft-server"">https://nodecraft.com/support/games/minecraft/adding-a-resource-pack-to-a-minecraft-server</a>")
+			this.Add_CheckBox("require-resource-pack","Require resource pack (Players will be kicked if they refuse the resource pack)")
 		
+		}
 		
-		settingsgui.tab(2)
-		settingsgui.add("link",, "Server Description (a.k.a MOTD`; as seen on Multiplayer menu).`nGo to <a href=""https://minecraft.tools/en/motd.php"">https://minecraft.tools/en/motd.php</a> to generate nice-looking MOTD")
-		this.ctrls["motd"] := settingsgui.add("Edit","w" . FontNormal * 70,this.props["motd"])
-		
-		this.ctrls["gamemode"] := settingsgui.add("DropDownList","section", "Survival|Creative|Adventure")
-		settingsgui.add("text","ys", "Gamemode")
-		this.ctrls["gamemode"].ChooseString(this.props["gamemode"])
-		
-		
-		this.ctrlprop["difficulty"] := settingsgui.add("DropDownList", "xs section", "Peaceful|Easy|Normal|Hard|Hardcore|UHC")
-		settingsgui.add("text"," ys", "Difficulty")
-		this.ctrlprop["difficulty"].ChooseString(this.difficulty)
+		{ ; Security
+			Lgui.Tab(6)
+			
+			Lgui.add("Edit","section")
+			this.ctrls["max-players"] := Lgui.add("UpDown",, this.props["max-players"])
+			Lgui.add("text"," ys", "Maximum players")
+			
+			this.Add_CheckBox("white-list","Private (Use the /whitelist command to grant people access)")
+			Lgui.add("Link","xs section","<a>Open Whitelist File</a>").OnEvent(Server.OpenFile.Bind(this,"whitelist.json"))
+			Lgui.add("Link","ys","<a>Open Banlist File</a>`n").OnEvent(Server.OpenFile.Bind(this,"banned-players.json"))
+			
+			
+			
+			this.ctrlprop["op_level"] := Lgui.add("DropDownList","xs section w" . FontNormal * 30 . " choose"
+				. this.props["op-permission-level"]
+				,"No Commands|Singleplayer Commands|Singleplayer and Multiplayer Commands|All Commands")
+			Lgui.add("text","ys","Default OP Permissions -- use the /op command to give players these permissions")
+			Lgui.add("text","xs section"
+				,"`nSingleplayer commands include /tp`, /give`, and /kill.`nMultiplayer commands include /whitelist`, /ban`, /op.`nServer-level commands are /stop and /save-[on/off/all]`nAll OPs can bypass the player limit`, whitelist`, grief-protection`, etc.`n")
 				
-		this.ctrls["pvp"] := settingsgui.add("CheckBox","xs Checked" . Bool(this.props["pvp"]), "Allow PVP (player vs player)")
-		this.ctrls["pvp"].IsBool := true
+			
+			Lgui.add("Edit","xs section")
+			this.ctrls["spawn-protection"] := Lgui.add("UpDown", , this.props["spawn-protection"])
+			Lgui.add("text","ys", "Spawn Grief-Protection Radius")
+			
+				
+			this.Add_UpDown("player-idle-timeout","AFK limit (If non-zero, this kicks anyone who is unresponsive for ___ minutes)")
+			
+			this.Add_CheckBox("online-mode","Check Player ID (players may not be in ""offline mode"")")
+			this.Add_CheckBox("allow-flight","Permit Flight-Hacks (otherwise, illegally flying players are kicked)")
+			
+			this.ctrls["allow-nether"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["allow-nether"]), "Enable Nether Portals")
+			this.ctrls["allow-nether"].IsBool := true
+			
+			this.ctrls["enable-command-block"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["enable-command-block"])
+				, "Allow Command Blocks")
+			this.ctrls["enable-command-block"].IsBool := true
+			
+			
+			Lgui.add("Link","xs section","<a>Advanced Permissions</a>").OnEvent(Server.OpenFile.Bind(this, "permissions.yml"))
+			
+			
+		}
 		
 		
-		this.ctrls["level-seed"] := settingsgui.add("Edit","xs section",this.props["level-seed"])
-		settingsgui.add("text","ys", "Custom World Seed")
 		
-		settingsgui.add("Edit","xs section")
-		this.ctrls["max-players"] := settingsgui.add("UpDown",, this.props["max-players"])
-		settingsgui.add("text"," ys", "Maximum players")
+		Lgui.tab()
+		Lgui.Add("Button","section default","  Save  ").OnEvent(Server.Save.Bind(this),"Normal")
+		Lgui.add("Button", "ys", " Cancel ").OnEvent(Server.ReloadSettings.Bind(this))
 		
 		
-		settingsgui.add("Edit","xs section")
-		this.ctrls["spawn-protection"] := settingsgui.add("UpDown", , this.props["spawn-protection"])
-		settingsgui.add("text","ys", "Spawn Grief-Protection Radius")
-		
-		this.ctrls["spawn-monsters"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-monsters"])
-			, "Automatically Spawn Monsters")
-		this.ctrls["spawn-monsters"].IsBool := true
-		 
-		this.ctrls["spawn-npcs"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-npcs"])
-			, "Automatically Spawn NPCs (Villagers)")
-		this.ctrls["spawn-npcs"].IsBool := true
-		
-		this.ctrls["spawn-animals"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-animals"])
-			, "Automatically Spawn Animals")
-		this.ctrls["spawn-animals"].IsBool := true
-		
-		this.ctrls["enable-command-block"] := settingsgui.add("CheckBox", "xs Checked" . Bool(this.props["enable-command-block"])
-			, "Allow Command Blocks")
-		this.ctrls["enable-command-block"].IsBool := true
-		
-		
-		settingsgui.add("Edit","xs section")
-		this.ctrlprop["RAM"] := settingsgui.add("UpDown", ,this.RAM)
-		settingsgui.add("text","ys", "Maximum Server Memory (in Gigabytes)")
-		
-		settingsgui.add("Link", "xs section", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
-		settingsgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
-		
-		settingsgui.add("Button", "xs default", "Revert Settings").OnEvent(Server.ReloadSettings.Bind(this))
-		
-		
-		settingsgui.show("Autosize Center")
-		this.SettingsWin := settingsgui
+		Lgui.show("Autosize Center")
 	}
+	
+	
 	FlushProps() {
 		FilePath := this.uniquename . "\server.properties"
 		For key, ctrl in this.ctrls
@@ -874,12 +976,15 @@ class Server { ;---------------------Class Server-------------------------------
 	Save(Event := "") {
 		this.FlushProps()
 		this.DateModified := A_Now
+		ChooseServerWindow()
 		this.SettingsWin.Destroy()
+		If this.IsRunning {
+			MsgBox, 262208, Server Properties, Use the /reload command or restart the server to apply changes, 10
+		}
 	}
 	
 	ReloadSettings() {
 		this.SettingsWin.Destroy()
-		this.Settings()
 	}
 	
 	UpdateThisServer(Event := "") {
@@ -906,20 +1011,6 @@ class Server { ;---------------------Class Server-------------------------------
 		}
 	}
 	
-	Rename(Event := "") {
-		
-		InputBox, NewName, QuickServer, Enter a new name for your server.,,,,,,,, % this.name
-		If Errorlevel
-			return false
-		this.name := SubStr(NewName,1,50)
-		ChooseServerWindow()
-		If (Event.EventType = "Normal")
-		{
-			this.SettingsWin.Destroy()
-			this.Settings()
-		}
-		return true
-	}
 	
 	Duplicate() {
 		CreatedServer := new Server
@@ -928,9 +1019,9 @@ class Server { ;---------------------Class Server-------------------------------
 		CopyFilesAndFolders(this.uniquename . "\*.*", CreatedServer.uniquename, true)
 		SplashTextOff
 		CreatedServer.name := this.name . " (Copy)"
-		CreatedServer.Rename()
 		CreatedServer.DateModified := A_Now
 		ChooseServerWindow()
+		CreatedServer.Settings()
 	}
 	Delete() {
 		
@@ -973,6 +1064,29 @@ class Server { ;---------------------Class Server-------------------------------
 		run, explore %openfolder%
 	}
 	
+	OpenFile(filename, Event) {
+		run, % "notepad.exe """ . this.uniquename . "\" . filename . """",,max
+	}
+
+	Add_CheckBox(key,label) {
+		this.ctrls[key] := this.SettingsWin.add("CheckBox", "xs section Checked" . Bool(this.props[key]), label)
+		this.ctrls[key].IsBool := true
+	}
+	Add_Edit(key,label) {
+		this.ctrls[key] := this.SettingsWin.add("Edit","xs section",this.props[key])
+		this.SettingsWin.add("text","ys", label)
+	}
+	Add_UpDown(key,label,opts := "") {
+		this.SettingsWin.add("Edit","xs section")
+		this.ctrls[key] := this.SettingsWin.add("UpDown",opts, this.props[key])
+		this.SettingsWin.add("text","ys", label)
+	}
+	
+	__Delete() {
+		If this.IsRunning {
+			WinClose, % "ahk_pid " . this.ProcessID
+		}
+	}
 }
 
 Class PluginsGUI { ;-----------------Plugins Window ---
@@ -1048,7 +1162,6 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 	
 }
 
-
 	
 { ;----------------------------------Technical----------
 
@@ -1099,10 +1212,10 @@ RunTer(command, windowtitle, startingdir := "") {
 	run, cmd.exe /c %command%, %startingdir%,, cmdPID
 
 	WinWait, ahk_pid %cmdPID%
-	WinExist("ahk_pid " . cmdPID)
+	winHWND := WinExist("ahk_pid " . cmdPID)
 	WinBlur(100)
 	WinSetTitle, %windowtitle%
-	return cmdPID
+	return winHWND
 }
 
 IniRead(FileName, Section, Key, Default := "ERROR") {
@@ -1131,42 +1244,36 @@ GetFontDefault() {
 
 }
 
-{ ;----------------------------------EULA-----------------------
 
-eulaAgree(ServerFolder) {
-	static EULAIAgree
-	global eulaAgree_finishEULA
-	gui, eulaAgree:new,,QuickServer
-	gui, font, s%FontNormal%
-	gui, add, link,, Please read and agree to the <a href="https://account.mojang.com/documents/minecraft_eula">Minecraft EULA</a>
-	gui, add, text,,   
-	gui, add, checkbox, vEULAIAgree geulaAgree_changeaccept, I agree to the Minecraft EULA
-	gui, add, button, veulaAgree_finishEULA default geulaAgree_finishEULA, OK
-	guicontrol, disable, eulaAgree_finishEULA
-	gui, show, Autosize Center
-	gui, +LastFound
-	WinWaitClose
-	If EULAIAgree {
-		try FileDelete, %ServerFolder%\eula.txt
-		FileAppend, eula=true, %ServerFolder%\eula.txt
-		return true
+class eulaWindow { ;-----------------EULA-----------------------
+	waiting := true
+	__New(uniquename) {
+		this.guiobj := new gui
+		this.guiobj.Font("s" . FontNormal)
+		this.guiobj.add("link",,"Please read and agree to the <a href=""https://account.mojang.com/documents/minecraft_eula"">Minecraft EULA</a>")
+		this.guiobj.add("text",,"     ")
+		this.IAgreeCtrl := this.guiobj.add("checkbox",,"I agree to the Minecraft EULA")
+		this.guiobj.add("button",,"  OK  ").OnEvent(eulaWindow.continue.bind(this),"Normal")
+		this.guiobj.OnEvent(eulaWindow.continue.bind(this),"Close")
+		this.guiobj.Show("autosize center","QuickServer")
+		Critical,off
+		While this.waiting
+		{
+			sleep,50
+		}
+		If this.IAgree {
+			FileDelete, %uniquename%\eula.txt
+			FileAppend, eula=true, %uniquename%\eula.txt
+		}
 	}
-	return false
-}	
 	
-eulaAgree_changeaccept() {
-	gui, eulaAgree:submit, nohide
-	guicontrol, enable, eulaAgree_finishEULA
-	return
+	continue(Event := "") {
+		this.IAgree := this.IAgreeCtrl.Contents and not (Event.EventType = "Close")
+		this.guiobj.destroy()
+		this.waiting := false
+	}
 }
 
-eulaAgree_finishEULA() {
-	gui, eulaAgree:default
-	gui, submit
-	gui, destroy
-}
-
-}
 
 { ;----------------------------------Update---------------
 UpdateServer(version := "latest") {
@@ -1250,55 +1357,56 @@ DownloadFailed(byref this) {
 DefaultPropertiesFile(FilePath) {
 	FileAppend,
 	(
-spawn-protection=16
-max-tick-time=60000
-query.port=25565
-generator-settings=
-sync-chunk-writes=true
-force-gamemode=false
-allow-nether=true
-enforce-whitelist=false
-gamemode=survival
-broadcast-console-to-ops=true
-enable-query=false
-player-idle-timeout=0
-difficulty=easy
-spawn-monsters=true
-broadcast-rcon-to-ops=true
-op-permission-level=4
-pvp=true
-entity-broadcast-range-percentage=100
-snooper-enabled=true
-level-type=default
-hardcore=false
-enable-status=true
-enable-command-block=true
-max-players=20
-network-compression-threshold=256
-resource-pack-sha1=
-max-world-size=29999984
-function-permission-level=2
-rcon.port=25575
-server-port=25565
-debug=false
-server-ip=
-spawn-npcs=true
-allow-flight=false
-level-name=world
-view-distance=10
-resource-pack=
-spawn-animals=true
-white-list=false
-rcon.password=
-generate-structures=true
-max-build-height=256
-online-mode=true
-level-seed=
-use-native-transport=true
-prevent-proxy-connections=false
 enable-jmx-monitoring=false
+rcon.port=25575
+level-seed=
+gamemode=survival
+enable-command-block=true
+enable-query=false
+generator-settings=
+level-name=world
+motd=Made Using QuickServerMC
+query.port=25565
+pvp=true
+generate-structures=true
+difficulty=easy
+network-compression-threshold=256
+max-tick-time=60000
+max-players=20
+use-native-transport=true
+online-mode=true
+enable-status=true
+allow-flight=false
+broadcast-rcon-to-ops=true
+view-distance=10
+max-build-height=256
+server-ip=
+allow-nether=true
+server-port=25565
 enable-rcon=false
-motd=A Minecraft Server
+sync-chunk-writes=true
+op-permission-level=4
+prevent-proxy-connections=false
+resource-pack=
+entity-broadcast-range-percentage=100
+rcon.password=
+player-idle-timeout=0
+force-gamemode=false
+rate-limit=0
+hardcore=false
+white-list=false
+broadcast-console-to-ops=true
+spawn-npcs=true
+spawn-animals=true
+snooper-enabled=true
+function-permission-level=2
+level-type=default
+spawn-monsters=true
+enforce-whitelist=false
+resource-pack-sha1=
+spawn-protection=16
+max-world-size=29999984
+require-resource-pack=false
 ), %FilePath%
 
 }

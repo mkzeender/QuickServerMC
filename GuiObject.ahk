@@ -1,49 +1,4 @@
 
-thingy := new Gui(,"Hello")
-wut := thingy.Add("Edit",,"Hooligans are cooligan")
-wut.Enabled := false
-thingy.Show("autosize center")
-thingy.OnEvent("ExitApp","Close")
-thingy.OnEvent("TestEvent", "Normal")
-thingy.Options("+AlwaysOnTop")
-sleep,1000
-wut.Enabled := true
-MsgBox,,, % MiniMsgBox(,"hooligan","areyoucool","yay","hoop","glug","bart")
-;MsgBox,,, % thingy.Wait("Normal").Control.Contents . "`n" . A_IsCritical
-
-return
-
-MiniMsgBox(options := "AlwaysOnTop", Title := "", text := "", buttons*) {
-	wee := new Gui(options, Title)
-	wee.Add("text",,text)
-	wee.Add("text")
-	For index, btnname in buttons
-	{
-		wee.Add("Button","ym",btnname)
-	}
-	wee.Show("Autosize center")
-	chosenbutton := wee.Wait("Normal","Close").Control.Text
-	wee.Destroy()
-	return chosenbutton
-}
-
-TestEvent(Event) {
-	MiniMsgBox(, "hoo", "it worked`n" . Event.Control.Focus . "`n" . event.EventType . "`n" . Event.EventInfo . "`n" . Event.Errorlevel
-		, "yay", "wut","woo","barty")
-}
-TestEventTwo(Event) {
-	MsgBox,,, Eventy
-	If (Event.EventType = "Close")
-		Event.NoClose := true
-}
-
-ExitApp(event) {
-	ExitApp
-}
-
-
-
-
 { ;------ GUI -----------
 
 
@@ -257,102 +212,27 @@ Class GuiControl {
 Class GuiControl_ListView extends GuiControl {
 	
 		
-	LV_Add(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_Add(params*)
-		If not crit
-			Critical, off
-		return v
+	__Call(function, params*) {
+		If (InStr(function, "LV_") = 1) and not (function = "LV_GetText") {
+			If not (crit := A_IsCritical) {
+				Critical
+			}
+			gui, % this.ParentHwnd . ":default"
+			gui, % this.ParentHwnd . ":ListView", % this.Hwnd
+			v := %function%(params*)
+			If not crit {
+				Critical, off
+			}
+			return v
+		}
 	}
-	LV_Insert(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_Insert(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_Modify(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_Modify(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_Delete(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_Delete(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_ModifyCol(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_ModifyCol(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_InsertCol(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_InsertCol(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_DeleteCol(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_DeleteCol(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_GetCount(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_GetCount(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_GetNext(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_GetNext(params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	
+
 	LV_GetText(byref outputvar, params*) {
-		crit := A_IsCritical
-		Critical
+		If not (crit := A_IsCritical)
+			Critical
+		gui, % this.ParentHwnd . ":default"
 		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
 		v := LV_GetText(outputvar, params*)
-		If not crit
-			Critical, off
-		return v
-	}
-	LV_SetImageList(params*) {
-		crit := A_IsCritical
-		Critical
-		Gui, % this.ParentHwnd . ":ListView", % this.Hwnd
-		v := LV_SetImageList(params*)
 		If not crit
 			Critical, off
 		return v
@@ -501,8 +381,6 @@ GuiObj_EventHandler(EventType, GuiHwnd, EventInfo := "", CtrlHwnd := "", X := ""
 GuiObj_EventHandler_PostEvent(Event, InObject) {
 	If not IsObject(InObject)
 		return ""
-	crit := A_IsCritical
-	critical
 	For index, EventHandler in InObject.EventHandlers
 	{
 		If (EventHandler.EventType = Event.EventType) Or (EventHandler.EventType = "All") {
@@ -510,6 +388,8 @@ GuiObj_EventHandler_PostEvent(Event, InObject) {
 		}
 	}
 	
+	crit := A_IsCritical
+	critical
 	ct := 0
 	For index, EventTicket in InObject.EventTickets
 	{
