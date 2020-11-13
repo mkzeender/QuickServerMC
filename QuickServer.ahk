@@ -3,7 +3,7 @@
 global DefaultDir := A_AppData "\.QuickServer"
 global Enable_CheckForUpdates := true
 global defaultRAM := 2
-global debug := false
+global debug := true
 
 { ;--------------------------------  AUTORUN ----------------------------------
 
@@ -33,7 +33,8 @@ If FileExist("QuickServer.ico") {
 }
 
 If Enable_CheckForUpdates {
-	CheckForUpdates()
+	(new UpdateManager).Check()
+	;CheckForUpdates()
 }
 
 
@@ -76,6 +77,62 @@ CheckForUpdates() {
 			ExitApp
 		}
 	}
+}
+
+class UpdateManager {
+	Finished := false
+	TimeOut := true
+	Check() {
+		this.req := ComObjCreate("Msxml2.XMLHTTP")
+		this.req.open("GET", "https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/build.txt", true)
+		this.req.onreadystatechange := UpdateManager.ReadyState.Bind(this)
+		this.req.Send()
+		loop, 12
+		{
+			sleep, 500
+			If this.finished {
+				this.TimeOut := false
+				break
+			}
+		}
+	}
+	ReadyState() {
+		if (this.req.readyState != 4)  ; Not done yet.
+			return
+		if (this.req.status == 200) {
+			this.Finished := true
+			this.latestbuild := StrReplace(StrReplace(this.req.responseText,"`n"),"`r")
+			CurrentBuild := IniRead("QuickServer.ini", "version", "build", 0)
+			MsgBox,,,% this.latestbuild . "   " . CurrentBuild
+			If (this.latestbuild != CurrentBuild) {
+				(this.Timeout) ? OnExit(UpdateManager.Update.Bind(this,"--NoStart")) : this.Update()
+			}
+		}
+	}
+	Update(opts := "") {
+		try FileDelete, QuickServer-setup.ahk
+		URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/QuickServer-setup.ahk, QuickServer-setup.ahk
+		If not FileExist("QuickServer-setup.ahk") {
+			fail := true
+		}
+		try run, QuickServer.exe QuickServer-setup.ahk
+		catch
+		{
+			try FileCopy, %A_ScriptDir%\QuickServer.exe, QuickServer.exe
+			try run, QuickServer.exe QuickServer-setup.ahk %opts%
+			catch
+			{
+				fail := true
+			}
+		}
+		
+		If not fail {
+			IniWrite, % this.LatestBuild, QuickServer.ini, version, build
+			If (opts = "--NoStart")
+				ExitApp
+		}
+	}
+	
 }
 
 CheckPortableMode() {
@@ -143,7 +200,7 @@ ChooseServerWindow() {
 		ListCtrl.LV_Add("",IniRead(ServerList[A_Index] . "\QuickServer.ini", "QuickServer", "name", "Untitled server"),GetDate(ServerList[A_Index],false),ServerList[A_Index],GetDate(ServerList[A_Index],true))
 	}
 	
-	Listctrl.LV_Modify(1, "Focus")
+	
 }
 
 BuildServerWindow() {
@@ -168,8 +225,8 @@ BuildServerWindow() {
 	MainGui.add("text","ym")   
 	MainGui.Font("s" . FontLarge)
 	Maingui.add("Button", , "New World").OnEvent("Button_Main_NewServer")
-	Maingui.add("Button",,"Play Selected World").OnEvent("SelectServer_Run")
-	Maingui.add("Button",, "World Settings").OnEvent("SelectServer_Settings")
+	Maingui.add("Button",,"Open World").OnEvent("SelectServer_Run")
+	Maingui.add("Button",, "World Properties").OnEvent("SelectServer_Settings")
 	Maingui.add("Button", , "Import World").OnEvent("SelectServer_Import")
 	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore")
 	Maingui.add("Link", , "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall")
@@ -186,29 +243,47 @@ BuildServerWindow() {
 Class ServerLV_Menu {
 	Build() {
 		funcobj := ServerLV_Menu.ChooseItem.Bind(this)
-		Menu, ServerLV_Menu, Add,Run,%funcobj%
-		Menu, ServerLV_Menu, Default, Run
-		Menu, ServerLV_Menu, Add, Duplicate,%funcobj%
+		Menu, ServerLV_Menu, Add,Open,%funcobj%
+		Menu, ServerLV_Menu, Default, Open
 		Menu, ServerLV_Menu, Add, Backup,%funcobj%
 		Menu, ServerLV_Menu, Add
+		Menu, ServerLV_Menu, Add, Duplicate,%funcobj%
+		Menu, ServerLV_Menu, Add, Delete,%funcobj%
+		Menu, ServerLV_Menu, Add
 		Menu, ServerLV_Menu, Add,Properties,%funcobj%
+		Menu, ServerLV_amb, Add, New World, %funcobj%
+		Menu, ServerLV_amb, Add, Import World, %funcobj%
+		Menu, ServerLV_amb, Add, Restore Backup, %funcobj%
 	}
 	Show(Event) {
-		this.uniquename := GetChosenUniquename()
-		Menu, ServerLV_Menu, Show
+		If not (Event.EventInfo = 0) {
+			Event.Control.LV_GetText(v,Event.EventInfo,3)
+			this.uniquename := v
+			Menu, ServerLV_Menu, Show
+		}
+		Else {
+			Menu, ServerLV_amb, Show
+		}
 	}
 	
 	ChooseItem(ItemName,ItemPos,MenuName) {
-		  (ItemName = "Run") ? SelectServer_Run()
-		: (ItemName = "Properties") ? SelectServer_Settings()
-		: (ItemName = "Duplicate") ? this.Duplicate()
-		: (ItemName = "Backup") ? this.Backup()
+		  (ItemName = "Open")			? SelectServer_Run()
+		: (ItemName = "Properties") 	? SelectServer_Settings()
+		: (ItemName = "Duplicate")		? this.Duplicate()
+		: (ItemName = "Backup")			? this.Backup()
+		: (ItemName = "New World")		? Button_Main_NewServer()
+		: (ItemName = "Import World") 	? SelectServer_Import()
+		: (ItemName = "Restore Backup")	? SelectServer_Restore()
+		: (ItemName = "Delete")			? this.Delete()
 	}
 	Duplicate() {
 		(new Server(GetChosenUniquename())).Duplicate()
 	}
 	Backup() {
 		(new Server(GetChosenUniquename())).Backup()
+	}
+	Delete() {
+		(new Server(GetChosenUniquename())).Delete()
 	}
 }
 
@@ -267,6 +342,7 @@ SelectServer_Settings() {
 }
 
 SelectServer_Import() {
+
 	ImportGui := new Gui("-sysmenu","Import Server")
 	ImportGui.font("s" . FontLarge)
 	ImportGui.add("Button", , "Import Singleplayer World").OnEvent("ImportSinglePlayer")
@@ -291,7 +367,7 @@ ImportSinglePlayer() {
 	uniquename := CreatedServer.uniquename
 	FileCreateDir, %uniquename%\world
 	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
-		msgbox, 0x10,Import World,Some world data could not be imported
+		msgbox, 48,Import World,Some world data could not be imported
 		
 		
 	ChooseServerWindow()
@@ -312,7 +388,7 @@ ImportExternalServer() {
 	
 	uniquename := CreatedServer.uniquename
 	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename)
-		msgbox, 0x10,Import World,Some world data could not be imported
+		msgbox, 48,Import World,Some world data could not be imported
 		
 		
 	ChooseServerWindow()
@@ -427,6 +503,7 @@ Class NgrokHandler { ; --------------Ngrok-----------------------------------
 		If ngrok_enable and not FileExist("ngrok.exe")
 			Throw Exception("Ngrok installation failed. Connect to the internet and restart QuickServer to try again")
 		
+		ConnectionsWindow.Refresh()
 		Event.Gui.Destroy()
 	}
 	
@@ -878,11 +955,16 @@ class Server { ;---------------------Class Server-------------------------------
 			
 		{ ; Resource packs
 		Lgui.tab(5)
-			Lgui.add("text","section","Include a resource pack (texture pack) in this server")
-			this.Add_Edit("resource-pack","Resource Pack -- Paste a valid downloadable link to a resource/texture pack")
+			Lgui.add("text","section","Include a resource pack (texture pack) in this server`n`nPaste a valid downloadable link to a resource/texture pack")
+			this.ctrls["resource-pack"] := Lgui.Add("Edit","xs section w" . FontNormal * 70, this.props["resource-pack"])
+			Lgui.add("text","xs"," ")
+			
 			this.Add_Edit("resource-pack-sha1","SHA-1 -- Paste the file's SHA-1 hash here")
-			Lgui.add("Link","xs section","Try this link for help:`n<a href=""https://nodecraft.com/support/games/minecraft/adding-a-resource-pack-to-a-minecraft-server"">https://nodecraft.com/support/games/minecraft/adding-a-resource-pack-to-a-minecraft-server</a>")
+			
 			this.Add_CheckBox("require-resource-pack","Require resource pack (Players will be kicked if they refuse the resource pack)")
+			
+			Lgui.add("Link","xs section","`nTry this link for help:`n<a href=""https://nodecraft.com/support/games/minecraft/adding-a-resource-pack-to-a-minecraft-server"">https://nodecraft.com/support/games/minecraft/adding-a-resource-pack-to-a-minecraft-server</a>")
+			
 		
 		}
 		
@@ -902,7 +984,8 @@ class Server { ;---------------------Class Server-------------------------------
 			this.ctrlprop["op_level"] := Lgui.add("DropDownList","xs section w" . FontNormal * 30 . " choose"
 				. this.props["op-permission-level"]
 				,"No Commands|Singleplayer Commands|Singleplayer and Multiplayer Commands|All Commands")
-			Lgui.add("text","ys","Default OP Permissions -- use the /op command to give players these permissions")
+			Lgui.add("text","ys","Default OP Permissions")
+			Lgui.add("text", "xs section","Use the /op command to give players these permissions")
 			Lgui.add("text","xs section"
 				,"`nSingleplayer commands include /tp`, /give`, and /kill.`nMultiplayer commands include /whitelist`, /ban`, /op.`nServer-level commands are /stop and /save-[on/off/all]`nAll OPs can bypass the player limit`, whitelist`, grief-protection`, etc.`n")
 				

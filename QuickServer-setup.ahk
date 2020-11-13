@@ -71,4 +71,5 @@ FileDelete, QuickServerMC-master.zip
 
 Progress,100
 
-try Run, QuickServer.exe
+If not (A_Args[1] = "--NoStart")
+	try Run, QuickServer.exe
