@@ -1,12 +1,13 @@
 ;-------- Quick Modifications --------------
 
-global DefaultDir := A_AppData "\.QuickServer"
+global             DefaultDir := A_AppData "\.QuickServer"
 global Enable_CheckForUpdates := true
-global defaultRAM := 2
-global debug := true
+global             defaultRAM := 2
+global                  debug := false
 
 { ;--------------------------------  AUTORUN ----------------------------------
 
+{ ;AutoExec section
 SetBatchLines, -1
 #NoTrayIcon
 If debug {
@@ -34,7 +35,6 @@ If FileExist("QuickServer.ico") {
 
 If Enable_CheckForUpdates {
 	(new UpdateManager).Check()
-	;CheckForUpdates()
 }
 
 
@@ -46,55 +46,25 @@ ngrok.run()
 ConnectionsWindow.Refresh()
 
 return
-
-
-
-
-CheckForUpdates() {
-	CurrentBuild := IniRead("QuickServer.ini", "version", "build", 0)
-	FileDelete, build.txt
-	URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/build.txt, build.txt
-	FileRead, LatestBuild, build.txt
-	LatestBuild := StrReplace(StrReplace(LatestBuild,"`n"),"`r")
-	If (LatestBuild > CurrentBuild) {
-		try FileDelete, QuickServer-setup.ahk
-		URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/QuickServer-setup.ahk, QuickServer-setup.ahk
-		If not FileExist("QuickServer-setup.ahk") {
-			fail := true
-		}
-		try run, QuickServer.exe QuickServer-setup.ahk
-		catch
-		{
-			try FileCopy, %A_ScriptDir%\QuickServer.exe, QuickServer.exe
-			try run, QuickServer.exe QuickServer-setup.ahk
-			catch
-			{
-				fail := true
-			}
-		}
-		IniWrite, %LatestBuild%, QuickServer.ini, version, build
-		If not fail {
-			ExitApp
-		}
-	}
 }
+
 
 class UpdateManager {
 	Finished := false
-	TimeOut := true
+	TimeOut := false
 	Check() {
 		this.req := ComObjCreate("Msxml2.XMLHTTP")
 		this.req.open("GET", "https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/build.txt", true)
 		this.req.onreadystatechange := UpdateManager.ReadyState.Bind(this)
 		this.req.Send()
-		loop, 12
+		loop, 30
 		{
-			sleep, 500
+			sleep, 200
 			If this.finished {
-				this.TimeOut := false
 				break
 			}
 		}
+		this.TimeOut := true
 	}
 	ReadyState() {
 		if (this.req.readyState != 4)  ; Not done yet.
@@ -103,13 +73,23 @@ class UpdateManager {
 			this.Finished := true
 			this.latestbuild := StrReplace(StrReplace(this.req.responseText,"`n"),"`r")
 			CurrentBuild := IniRead("QuickServer.ini", "version", "build", 0)
-			MsgBox,,,% this.latestbuild . "   " . CurrentBuild
 			If (this.latestbuild != CurrentBuild) {
-				(this.Timeout) ? OnExit(UpdateManager.Update.Bind(this,"--NoStart")) : this.Update()
+				If this.Timeout
+				{
+					MsgBox, 262148, QuickServer Update, There is a newer update of QuickServer available. Would you like to install it now?
+					IfMsgBox Yes
+					{
+						this.Update()
+					}
+				}
+				else
+				{
+					this.Update()
+				}
 			}
 		}
 	}
-	Update(opts := "") {
+	Update() {
 		try FileDelete, QuickServer-setup.ahk
 		URLDownloadToFile,https://raw.githubusercontent.com/mkzeender/QuickServerMC/master/QuickServer-setup.ahk, QuickServer-setup.ahk
 		If not FileExist("QuickServer-setup.ahk") {
@@ -128,8 +108,7 @@ class UpdateManager {
 		
 		If not fail {
 			IniWrite, % this.LatestBuild, QuickServer.ini, version, build
-			If (opts = "--NoStart")
-				ExitApp
+			ExitApp
 		}
 	}
 	
@@ -826,6 +805,7 @@ class Server { ;---------------------Class Server-------------------------------
 		try FileDelete, % this.uniquename . "\errorlog.log"
 		this.WinID := RunTer(cmd, this.name, this.uniquename)
 		this.DateModified := A_Now
+		Tutorial.Console.Show()
 		
 		sleep, 2000
 		FileRead,errorlog, % this.uniquename . "\errorlog.log"
@@ -1245,6 +1225,42 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 	
 }
 
+Class Tutorial {
+	
+	Class Console {
+		Show() {
+			If IniRead("QuickServer.ini", "Tutorial", "Console", false)
+				return
+			
+			this.gui := new gui("AlwaysOnTop -sysmenu","Tutorial")
+			v =
+				( LTrim ,
+				The console window allows you to run commands ("cheats"). Commands should NOT begin with a slash (/) when used here.
+				
+				Useful commands:
+				/gamerule <rule> <value> --- changes gamerules
+				/op <players>            --- enable cheat commands for the players
+				/ban <players>           --- bans the players
+				/kick <players>          --- disconnects the players
+				/whitelist <players>     --- allows the players to join (if the server is private)
+				/say <message>           --- puts a message into chat
+				/stop                    --- closes the server
+				
+				For a complete guide to commands, click <a href="https://minecraft.gamepedia.com/Commands">here</a>
+				
+				)
+			this.gui.Add("Link",,v)
+			this.hidctrl := this.gui.Add("CheckBox",,"Don't show this again")
+			this.gui.Add("Button",,"  OK  ").OnEvent(Tutorial.Console.Close.Bind(this))
+			this.gui.OnEvent(Tutorial.Console.Close.Bind(this),"Close")
+			this.gui.Show("AutoSize Center")
+		}
+		Close(Event := "") {
+			IniWrite(this.hidctrl.Contents,"QuickServer.ini","Tutorial","Console")
+			this.gui.Destroy()
+		}
+	}
+}
 	
 { ;----------------------------------Technical----------
 

@@ -1,4 +1,4 @@
-DefaultDir := A_AppData "\.QuickServer\"
+DefaultDir := A_AppData "\.QuickServer"
 FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 #notrayicon
@@ -69,7 +69,18 @@ FileCreateShortcut, %DefaultDir%\QuickServer.exe, %A_Programs%\QuickServer.lnk, 
 FileRemoveDir, QuickServerMC-master, 1
 FileDelete, QuickServerMC-master.zip
 
+RegWrite, REG_SZ, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, DisplayIcon, %DefaultDir%\QuickServer.ico
+RegWrite, REG_SZ, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, DisplayName, QuickServer MC
+RegWrite, REG_SZ, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, DisplayVersion, 1.0
+RegWrite, REG_SZ, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, InstallLocation, %DefaultDir%\
+RegWrite, REG_SZ, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, Publisher, Herobrine
+RegWrite, REG_SZ, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, UninstallString, "%DefaultDir%\QuickServer.exe" "%DefaultDir%\Uninstall.ahk"
+RegWrite, REG_DWORD, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, EstimatedSize, 1000000
+RegWrite, REG_DWORD, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, NoModify, 1
+RegWrite, REG_DWORD, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, NoRepair, 1
+RegWrite, REG_DWORD, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, VersionMajor, 1
+RegWrite, REG_DWORD, HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QuickServer, VersionMinor, 0
+
 Progress,100
 
-If not (A_Args[1] = "--NoStart")
-	try Run, QuickServer.exe
+try Run, QuickServer.exe
