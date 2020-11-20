@@ -1,4 +1,4 @@
-;#NoTrayIcon
+#NoTrayIcon
 DefaultDir := A_ScriptDir
 Win := new Gui(,"Uninstall QuickServer")
 Win.add("Text",, "Are you sure you want to uninstall QuickServer?`n")
