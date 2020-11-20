@@ -1,4 +1,4 @@
-;-------- Quick Modifications --------------
+;----------------------------------- Quick Modifications --------------
 
 global             DefaultDir := A_AppData "\.QuickServer"
 global Enable_CheckForUpdates := true
@@ -184,6 +184,7 @@ ChooseServerWindow() {
 
 BuildServerWindow() {
 	ServerLV_Menu.Build()
+	ConnectionsLV_Menu.Build()
 	
 	global MainGui
 	MainGui := new Gui(, "QuickServer")
@@ -265,6 +266,8 @@ Class ServerLV_Menu {
 		(new Server(GetChosenUniquename())).Delete()
 	}
 }
+
+
 
 { ;Main window buttons
 
@@ -597,10 +600,13 @@ class ConnectionsWindow {
 ConnectionsWindowPress(Event) {
 	critical
 	
-	If not (Event.EventType = "Normal")
+	If (Event.EventType = "ContextMenu") and not Event.Menu
+	{
+		ConnectionsLV_Menu.Show(Event)
 		return
+	}
 	
-	If (Event.GuiEvent = "Normal")
+	If (Event.GuiEvent = "Normal") or Event.Menu
 	{
 		critical off
 		If (Event.EventInfo = 1) {
@@ -624,17 +630,27 @@ ConnectionsWindowPress(Event) {
 	}
 }
 
-ConnectionsGuiClose() {
-	MsgBox, 0x40134,Close Connections,Are you sure you sure you want to quit? Your server may lose connection.
-	IfMsgBox Yes
-	{
-		ConnectionsWindow.IsOpen := false
-		ConnectionsWindow.Close()
+Class ConnectionsLV_Menu {
+	Build() {
+		funcobj := ConnectionsLV_Menu.ChooseItem.Bind(this)
+		Menu, PluginsLV, Add, Connection Properties, %funcobj%
+		Menu, PluginsLV, Default, Connection Properties
+		Menu, PluginsLV, Add, Copy Link, %funcobj%
 	}
-	return true
-}
-PublicIPGuiClose() {
-	gui, destroy
+	Show(Event) {
+		this.Event := Event
+		Menu, PluginsLV, Show
+	}
+	ChooseItem(ItemName,ItemPos,MenuName) {
+		this.Event.Menu := true
+		 (ItemName = "Connection Properties") ? ConnectionsWindowPress(this.Event)
+		:(ItemName = "Copy Link") ? this.CopyLink(this.Event)
+	}
+	CopyLink(Event) {
+		Event.Control.LV_GetText(v, Event.EventInfo, 2)
+		Clipboard := v
+	}
+	
 }
 }
 
@@ -884,9 +900,9 @@ class Server { ;---------------------Class Server-------------------------------
 			this.ctrls["pvp"].IsBool := true
 			
 			
-			this.Add_UpDown("view-distance", "Max Render Distance","Range3-32")
+			this.Add_UpDown("view-distance", "Render Distance","Range3-32")
 			
-			this.Add_UpDown("entity-broadcast-range-percentage","Entity render distance (in blocks)", "Range0-500")
+			this.Add_UpDown("entity-broadcast-range-percentage","Entity render distance (percentage)", "Range0-500")
 			
 			
 			this.ctrls["spawn-monsters"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-monsters"])
@@ -1153,6 +1169,7 @@ class Server { ;---------------------Class Server-------------------------------
 }
 
 Class PluginsGUI { ;-----------------Plugins Window ---
+	
 	__New(Guiobj, type, uniquename) {
 		this.type := type
 		this.uniquename := uniquename
@@ -1222,8 +1239,9 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 			}
 		}
 	}
-	
+		
 }
+
 
 Class Tutorial {
 	
