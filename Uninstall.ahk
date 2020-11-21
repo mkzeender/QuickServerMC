@@ -1,5 +1,6 @@
 #NoTrayIcon
 DefaultDir := A_ScriptDir
+SetWorkingDir, %A_ScriptDir%
 GroupAdd, QS, ahk_exe QuickServer.exe
 WinClose, ahk_group QS
 
