@@ -169,6 +169,9 @@ ChooseServerWindow() {
 	global MainGui_ServerListView
 	ListCtrl := MainGui_ServerListView
 	ListCtrl.LV_Delete()
+	global mainbtns
+	mainbtns.Run.Enabled := false
+	mainbtns.Settings.Enabled := false
 	
 	ServerList := GetServerList()
 	
@@ -177,6 +180,9 @@ ChooseServerWindow() {
 		DateFormat := GetDate(ServerList[A_Index])
 		
 		ListCtrl.LV_Add("",IniRead(ServerList[A_Index] . "\QuickServer.ini", "QuickServer", "name", "Untitled server"),GetDate(ServerList[A_Index],false),ServerList[A_Index],GetDate(ServerList[A_Index],true))
+	}
+	If (ServerList.Length() = 1) {
+		ListCtrl.LV_Modify(1,"Select")
 	}
 	
 	
@@ -190,7 +196,7 @@ BuildServerWindow() {
 	MainGui := new Gui(, "QuickServer")
 	MainGui.Font("s" . FontNormal)
 	LV_width := FontNormal * 50
-	Listctrl := MainGui.add("ListView", "R15 w" . LV_width . " -Multi", "World|DateFormat|uniquename|Date Modified")
+	Listctrl := MainGui.add("ListView", "altsubmit R15 w" . LV_width . " -Multi", "World|DateFormat|uniquename|Date Modified")
 
 	Listctrl.LV_ModifyCol(1, FontNormal * 30)
 	Listctrl.LV_ModifyCol(1, "Sort")
@@ -202,11 +208,15 @@ BuildServerWindow() {
 	MainGui_ServerListView := Listctrl
 	ListCtrl.OnEvent(ServerLV_Menu.Show.Bind(ServerLV_Menu), "ContextMenu")
 	
+	global mainbtns
+	mainbtns := {}
 	MainGui.add("text","ym")   
 	MainGui.Font("s" . FontLarge)
 	Maingui.add("Button", , "New World").OnEvent("Button_Main_NewServer")
-	Maingui.add("Button",,"Open World").OnEvent("SelectServer_Run")
-	Maingui.add("Button",, "World Properties").OnEvent("SelectServer_Settings")
+	mainbtns.Run := Maingui.add("Button","disabled","Open World")
+	mainbtns.Run.OnEvent("SelectServer_Run")
+	mainbtns.Settings := Maingui.add("Button","disabled", "World Properties")
+	mainbtns.Settings.OnEvent("SelectServer_Settings")
 	Maingui.add("Button", , "Import World").OnEvent("SelectServer_Import")
 	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore")
 	Maingui.add("Link", , "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall")
@@ -273,6 +283,7 @@ Class ServerLV_Menu {
 
 SelectServer_ListView(Event) {
 	critical
+	global SelectedUniquename
 	If (Event.GuiEvent = "ColClick") and (Event.EventInfo = 4) {
 		;sort by date modified
 		static inverse
@@ -282,9 +293,21 @@ SelectServer_ListView(Event) {
 	}
 	Else If (Event.GuiEvent = "DoubleClick") {
 		critical,off
+		
 		SelectServer_Run(Event)
-		;run server
 	}
+	Else If not (Event.GuiEvent == "I") or not InStr(Event.Errorlevel, "S")
+	{
+		return
+	}
+	If (found := Event.Control.LV_GetNext())
+		Event.Control.LV_GetText(SelectedUniquename, found, 3)
+	else
+		SelectedUniquename := ""
+	global mainbtns
+	mainbtns.Run.Enabled := found
+	mainbtns.Settings.Enabled := found
+	
 }
 
 Button_Main_NewServer() {
@@ -428,9 +451,8 @@ ExtractServerNames() {
 }
 
 GetChosenUniquename() {
-	global MainGui_ServerListView
-	MainGui_ServerListView.LV_GetText(v, MainGui_ServerListView.LV_GetNext(,"Focused"),3)
-	return v
+	global SelectedUniquename
+	return SelectedUniquename
 }
 
 GetServerList() {
