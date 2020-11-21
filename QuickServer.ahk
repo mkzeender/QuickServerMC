@@ -735,7 +735,7 @@ class Server { ;---------------------Class Server-------------------------------
 			}
 			If Bool(this.props["hardcore"])
 			{
-				return "Hardcore"
+				return "hardcore"
 			}
 			return this.props["difficulty"]
 				
@@ -747,7 +747,7 @@ class Server { ;---------------------Class Server-------------------------------
 				this.props["hardcore"] := "true"
 				return
 			}
-			If (value = "Hardcore")
+			If (value = "hardcore")
 			{
 				this.UHC := false
 				this.props["hardcore"] := "true"
@@ -908,13 +908,13 @@ class Server { ;---------------------Class Server-------------------------------
 		{ ; Gameplay
 		Lgui.tab(2)
 						
-			this.ctrls["gamemode"] := Lgui.add("DropDownList","section", "Survival|Creative|Adventure|Spectator")
+			this.ctrls["gamemode"] := Lgui.add("DropDownList","section", "survival|creative|adventure|spectator")
 			Lgui.add("text","ys", "Default Gamemode")
 			this.ctrls["gamemode"].ChooseString(this.props["gamemode"])
 			
 			this.Add_CheckBox("force-gamemode","Force Gamemode (players' gamemodes reset to default when they rejoin)")
 			
-			this.ctrlprop["difficulty"] := Lgui.add("DropDownList", "xs section", "Peaceful|Easy|Normal|Hard|Hardcore|UHC")
+			this.ctrlprop["difficulty"] := Lgui.add("DropDownList", "xs section", "peaceful|easy|normal|hard|hardcore|UHC")
 			Lgui.add("text"," ys", "Difficulty")
 			this.ctrlprop["difficulty"].ChooseString(this.difficulty)
 					
@@ -1273,6 +1273,7 @@ Class Tutorial {
 				return
 			
 			this.gui := new gui("AlwaysOnTop -sysmenu","Tutorial")
+			this.gui.Font("s" . FontNormal)
 			v =
 				( LTrim ,
 				The console window allows you to run commands ("cheats"). Commands should NOT begin with a slash (/) when used here.
@@ -1282,7 +1283,7 @@ Class Tutorial {
 				/op <players>            --- enable cheat commands for the players
 				/ban <players>           --- bans the players
 				/kick <players>          --- disconnects the players
-				/whitelist <players>     --- allows the players to join (if the server is private)
+				/whitelist add <players> --- allows players to join (if the server is private)
 				/say <message>           --- puts a message into chat
 				/stop                    --- closes the server
 				
