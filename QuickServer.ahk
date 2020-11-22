@@ -27,6 +27,7 @@ FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
 
 global ServerList
+global SelectedUniquename
 global ngrok := new NgrokHandler
 
 If FileExist("QuickServer.ico") {
@@ -210,7 +211,7 @@ BuildServerWindow() {
 	
 	global mainbtns
 	mainbtns := {}
-	MainGui.add("text","ym")   
+	MainGui.add("text","ym")
 	MainGui.Font("s" . FontLarge)
 	Maingui.add("Button", , "New World").OnEvent("Button_Main_NewServer")
 	mainbtns.Run := Maingui.add("Button","disabled","Open World")
@@ -223,7 +224,8 @@ BuildServerWindow() {
 	
 	Maingui.Font("s" . FontNormal)
 	ConnectionsWindow.Include(MainGui)
-
+	
+	Maingui.add("button","hidden default","Enter").OnEvent("SelectServer_Default","normal")
 	MainGui.OnEvent(Func("MainGUIGUIClose"),"Close")
 	MainGui.show("Autosize Center")
 	ChooseServerWindow()
@@ -246,8 +248,8 @@ Class ServerLV_Menu {
 		Menu, ServerLV_amb, Add, Restore Backup, %funcobj%
 	}
 	Show(Event) {
-		If not (Event.EventInfo = 0) {
-			Event.Control.LV_GetText(v,Event.EventInfo,3)
+		If not (Event.Control.LV_GetNext() = 0) {
+			Event.Control.LV_GetText(v,Event.Control.LV_GetNext(),3)
 			this.uniquename := v
 			Menu, ServerLV_Menu, Show
 		}
@@ -267,13 +269,13 @@ Class ServerLV_Menu {
 		: (ItemName = "Delete")			? this.Delete()
 	}
 	Duplicate() {
-		(new Server(GetChosenUniquename())).Duplicate()
+		(new Server(SelectedUniquename)).Duplicate()
 	}
 	Backup() {
-		(new Server(GetChosenUniquename())).Backup()
+		(new Server(SelectedUniquename)).Backup()
 	}
 	Delete() {
-		(new Server(GetChosenUniquename())).Delete()
+		(new Server(SelectedUniquename)).Delete()
 	}
 }
 
@@ -283,31 +285,48 @@ Class ServerLV_Menu {
 
 SelectServer_ListView(Event) {
 	critical
-	global SelectedUniquename
 	If (Event.GuiEvent = "ColClick") and (Event.EventInfo = 4) {
 		;sort by date modified
 		static inverse
 		inverse := not inverse
 		options := inverse ? "desc" : ""
 		Event.Control.LV_ModifyCol(2, "Sort" . options)
+		UpdateChosenUniquename(Event)
 	}
 	Else If (Event.GuiEvent = "DoubleClick") {
 		critical,off
-		
+		UpdateChosenUniquename(Event)
 		SelectServer_Run(Event)
 	}
-	Else If not (Event.GuiEvent == "I") or not InStr(Event.Errorlevel, "S")
+	If (Event.GuiEvent == "I") and InStr(Event.Errorlevel, "S")
 	{
+		UpdateChosenUniquename(Event)
 		return
 	}
+
+	
+}
+UpdateChosenUniquename(Event) {
+	global SelectedUniquename
 	If (found := Event.Control.LV_GetNext())
 		Event.Control.LV_GetText(SelectedUniquename, found, 3)
 	else
 		SelectedUniquename := ""
+	
 	global mainbtns
 	mainbtns.Run.Enabled := found
 	mainbtns.Settings.Enabled := found
-	
+}
+
+SelectServer_Default(Event := "") {
+	If ConnectionsWindow.ListCtrl.Focus
+	{
+		ConnectionsWindow.ConnectionProps()
+	}
+	else
+	{
+		SelectServer_Run(Event)
+	}
 }
 
 Button_Main_NewServer() {
@@ -322,9 +341,8 @@ Button_Main_NewServer() {
 }
 
 SelectServer_Run(Event := "") {
-	uniquename := GetChosenUniquename()
+	uniquename := SelectedUniquename
 	if not FileExist(uniquename . "\server.properties") {
-		msb("Select a server")
 		return
 	}
 	SelectedServer := new Server(uniquename)
@@ -334,12 +352,11 @@ SelectServer_Run(Event := "") {
 }
 
 SelectServer_Settings() {
-	uniquename := GetChosenUniquename()
+	uniquename := SelectedUniquename
 	if not FileExist(uniquename . "\server.properties") {
-		msb("Select a server")
 		return
 	}
-	SelectedServer := new Server(GetChosenUniquename())
+	SelectedServer := new Server(uniquename)
 	If not SelectedServer.uniquename
 		return false
 	SelectedServer.Settings()
@@ -450,10 +467,7 @@ ExtractServerNames() {
 	return StrReplace(NamesList,"|",,,1)
 }
 
-GetChosenUniquename() {
-	global SelectedUniquename
-	return SelectedUniquename
-}
+
 
 GetServerList() {
 	l_List := []
@@ -532,7 +546,7 @@ class ConnectionsWindow {
 		FileCreateDir, %A_Temp%\QuickServer
 		Guiobj.Add("Text","xm","Click a connection below for more info and setup`nUse Ngrok if you don't know where to start.")
 		width := FontNormal * 70
-		this.ListCtrl := Guiobj.Add("ListView", "w" . width . " AltSubmit Count4 Grid R5 noSortHdr", "Name|Address|Status|Connectivity")
+		this.ListCtrl := Guiobj.Add("ListView", "w" . width . " AltSubmit Count4 Grid R4 noSortHdr", "Name|Address|Status|Connectivity")
 		
 		this.ListCtrl.LV_Add("","Local Computer", "LOCALHOST", "Connected", "This computer only")
 		this.ListCtrl.LV_Add("","LAN","","","This WiFi network only")
@@ -543,10 +557,16 @@ class ConnectionsWindow {
 		this.ListCtrl.LV_ModifyCol(2,FontNormal * 20)
 		this.ListCtrl.LV_ModifyCol(3,FontNormal * 15)
 		this.ListCtrl.LV_ModifyCol(4,"AutoHdr")
-		this.ListCtrl.OnEvent("ConnectionsWindowPress")
+		this.ListCtrl.OnEvent(ConnectionsWindow.LVEvent.Bind(this))
 		
-		this.refreshCtrl := Guiobj.Add("Button","Disabled","Refreshing...")
+		this.refreshCtrl := Guiobj.Add("Button","section Disabled","Refreshing...")
 		this.refreshCtrl.OnEvent(ConnectionsWindow.Refresh.Bind(this))
+		
+		this.propertiesctrl := Guiobj.Add("Button","ys","Setup Connection")
+		this.propertiesctrl.OnEvent(ConnectionsWindow.ConnectionProps.Bind(this),"Normal")
+		this.copylinkctrl := Guiobj.Add("Button","ys","Copy Link")
+		this.copylinkctrl.OnEvent(ConnectionsWindow.Copylink.Bind(this),"Normal")
+		
 	}
 	
 	Refresh() {
@@ -569,8 +589,57 @@ class ConnectionsWindow {
 		
 		this.refreshCtrl.Text := "Refresh"
 		this.refreshCtrl.Enabled := true
-		
+		this.ListCtrl.LV_Modify(4,"Select")
 	}
+	
+	LVEvent(Event) {
+		If (Event.EventType = "ContextMenu")
+		{
+			this.updateSelection()
+			ConnectionsLV_Menu.Show(Event)
+			return
+		}
+		If (Event.GuiEvent = "DoubleClick")
+		{
+			this.updateSelection()
+			this.ConnectionProps()
+		}
+		If (Event.GuiEvent == "I") and InStr(Event.Errorlevel, "S") {
+			this.updateSelection()
+		}
+	}
+	
+	updateSelection() {
+		this.Selection := this.ListCtrl.LV_GetNext()
+	}
+	
+	ConnectionProps() {
+		If (this.selection = 1) {
+			msgbox,0x40000,Local Computer,If you are playing Minecraft on this computer, you can connect to the server by using LOCALHOST as the server address.
+		}
+		If (this.selection = 2) {
+			msgbox,0x40000,LAN,Anyone else playing on your LAN (a.k.a. your WiFi network) can connect to this address. However, you might need to mark the network as "private" (on your computer go to Settings > Network and Internet > Change Connection Properties)
+		}
+		If (this.selection = 3) {
+			publicIp := new Gui("AlwaysOnTop","Public IP Address")
+			publicIp.font("s" . FontNormal)
+			publicIp.add("Link",,"<a href=""https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"">Setup Port Forwarding</a> to use a permanent IP address for your server (note: Minecraft uses the port 25565)`n`nOnce you have set up port forwarding`, you can optionally connect it to a permanent`ncustom address (i.e. <a>MyServerIsCool.com</a>)")
+			clsbtn := publicIp.add("Button", "default", "Ok")
+			publicIp.Show("autosize center")
+			publicIp.Wait()
+			publicIp.Destroy()
+		}
+		If (this.selection = 4) {
+			ngrok.setup()
+		}
+	}
+	
+	CopyLink() {
+		this.ListCtrl.LV_GetText(v, this.Selection, 2)
+		Clipboard := v
+	}
+	
+	
 	
 	LAN_CheckConnection() {
 		If (A_IPAddress1 = 0.0.0.0)
@@ -619,39 +688,6 @@ class ConnectionsWindow {
 }
 
 
-ConnectionsWindowPress(Event) {
-	critical
-	
-	If (Event.EventType = "ContextMenu") and not Event.Menu
-	{
-		ConnectionsLV_Menu.Show(Event)
-		return
-	}
-	
-	If (Event.GuiEvent = "Normal") or Event.Menu
-	{
-		critical off
-		If (Event.EventInfo = 1) {
-			msgbox,0x40000,Local Computer,If you are playing Minecraft on this computer, you can connect to the server by using LOCALHOST as the server address.
-		}
-		If (Event.EventInfo = 2) {
-			msgbox,0x40000,LAN,Anyone else playing on your LAN (a.k.a. your WiFi network) can connect to this address. However, you might need to mark the network as "private" (on your computer go to Settings > Network and Internet > Change Connection Properties)
-		}
-		If (Event.EventInfo = 3) {
-			publicIp := new Gui("AlwaysOnTop","Public IP Address")
-			publicIp.font("s" . FontNormal)
-			publicIp.add("Link",,"<a href=""https://www.wikihow.com/Set-Up-Port-Forwarding-on-a-Router"">Setup Port Forwarding</a> to use a permanent IP address for your server (note: Minecraft uses the port 25565)`n`nOnce you have set up port forwarding`, you can optionally connect it to a permanent`ncustom address (i.e. <a>MyServerIsCool.com</a>)")
-			clsbtn := publicIp.add("Button", "default", "Ok")
-			publicIp.Show("autosize center")
-			publicIp.Wait()
-			publicIp.Destroy()
-		}
-		If (Event.EventInfo = 4) {
-			ngrok.setup()
-		}
-	}
-}
-
 Class ConnectionsLV_Menu {
 	Build() {
 		funcobj := ConnectionsLV_Menu.ChooseItem.Bind(this)
@@ -660,17 +696,11 @@ Class ConnectionsLV_Menu {
 		Menu, PluginsLV, Add, Copy Link, %funcobj%
 	}
 	Show(Event) {
-		this.Event := Event
 		Menu, PluginsLV, Show
 	}
 	ChooseItem(ItemName,ItemPos,MenuName) {
-		this.Event.Menu := true
-		 (ItemName = "Connection Properties") ? ConnectionsWindowPress(this.Event)
-		:(ItemName = "Copy Link") ? this.CopyLink(this.Event)
-	}
-	CopyLink(Event) {
-		Event.Control.LV_GetText(v, Event.EventInfo, 2)
-		Clipboard := v
+		 (ItemName = "Connection Properties") ? ConnectionsWindow.ConnectionProps()
+		:(ItemName = "Copy Link") ? ConnectionsWindow.CopyLink()
 	}
 	
 }

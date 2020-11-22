@@ -68,6 +68,18 @@ Class Gui {
 		return
 	}
 	
+	FocussedCtrl[] {
+		get {
+			GuiControlGet, ClassNN, Focus
+			GuiControlGet, Hwnd, Hwnd, % ClassNN
+			return GuiObj_GetFromHwnd(Hwnd, this.ControlList)
+		}
+		set {
+			value.focus := true
+		}
+	}
+	
+	
 	EventHandlers := []
 	EventTickets := []
 	static OnEvent := Func("GuiObj_EventHandler_OnEvent")
@@ -447,7 +459,7 @@ GuiObj_EventHandler_Wait(this, EventTypes*) {
 
 { ;------ MENU ----------
 
-Class Menu {
+Class MenuObj {
 	
 }
 }
