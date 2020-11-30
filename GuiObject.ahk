@@ -1,4 +1,5 @@
 
+
 { ;------ GUI -----------
 
 
@@ -76,6 +77,7 @@ Class Gui {
 		}
 		set {
 			value.focus := true
+			return this.FocussedCtrl
 		}
 	}
 	
@@ -109,7 +111,7 @@ Class GuiControl {
 			return GuiObj_GetFromHwnd(this.ParentHwnd, GuiObj_GuiList)
 		}
 		set {
-			return value
+			return this.ParentGui
 		}
 	}
 	
@@ -120,6 +122,7 @@ Class GuiControl {
 		}
 		set {
 			GuiControl,, % this.ControlID, % value
+			return this.Contents
 		}
 	}
 	
@@ -130,23 +133,54 @@ Class GuiControl {
 		}
 		set {
 			GuiControl, Text, % this.ControlID, % value
+			return this.Text
 		}
 	}
 	
-	Pos[key := ""] {
+	
+	MetaGetPosition(key) {
+		GuiControlGet, Pos, Pos, % this.ControlID
+		v := Pos%key% ; dynamic variable
+		return v
+	}
+	MetaSetPosition(key, value) {
+		GuiControl, move, % this.ControlID, %key%%value%
+	}
+	
+	X[] {
 		get {
-			GuiControlGet, Pos, Pos, % this.ControlID
-			If (key = "") {
-				return {base : {__Set : GuiControl.ChangePos_Meta_Set.Bind(this),__Get : GuiControl.ChangePos_Meta_Get.Bind(this)}}
-			}
-			else
-			{
-				v := Pos%key% ; dynamic variable
-				return v
-			}
+			return this.MetaGetPosition("X")
 		}
 		set {
-			GuiControl, move, % this.ControlID, %key%%value%
+			this.MetaSetPosition("X",value)
+			return this.MetaGetPosition("X")
+		}
+	}
+	Y[] {
+		get {
+			return this.MetaGetPosition("Y")
+		}
+		set {
+			this.MetaSetPosition("Y",value)
+			return this.MetaGetPosition("Y")
+		}
+	}
+	W[] {
+		get {
+			return this.MetaGetPosition("W")
+		}
+		set {
+			this.MetaSetPosition("W",value)
+			return this.MetaGetPosition("W")
+		}
+	}
+	H[] {
+		get {
+			return this.MetaGetPosition("H")
+		}
+		set {
+			this.MetaSetPosition("H",value)
+			return this.MetaGetPosition("H")
 		}
 	}
 	
@@ -169,6 +203,7 @@ Class GuiControl {
 		set {
 			If value
 				GuiControl, Focus, % this.ControlID
+			return this.Focus
 		}
 	}
 	
@@ -182,6 +217,7 @@ Class GuiControl {
 				GuiControl, Enable, % this.ControlID
 			else
 				GuiControl, Disable, % this.ControlID
+			return this.Enabled
 		}
 	}
 	Visible[] {
@@ -194,6 +230,7 @@ Class GuiControl {
 				GuiControl, Show, % this.ControlID
 			else
 				GuiControl, Hide, % this.ControlID
+			return this.Visible
 		}
 	}
 	Choose(N) {

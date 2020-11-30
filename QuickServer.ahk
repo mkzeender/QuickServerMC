@@ -213,12 +213,12 @@ BuildServerWindow() {
 	mainbtns := {}
 	MainGui.add("text","ym")
 	MainGui.Font("s" . FontLarge)
-	Maingui.add("Button", , "New World").OnEvent("Button_Main_NewServer")
-	mainbtns.Run := Maingui.add("Button","disabled","Open World")
+	Maingui.add("Button","w" . FontLarge * 15 , "New World").OnEvent("Button_Main_NewServer")
+	mainbtns.Run := Maingui.add("Button","disabled w" . FontLarge * 15,"Open World")
 	mainbtns.Run.OnEvent("SelectServer_Run")
-	mainbtns.Settings := Maingui.add("Button","disabled", "World Properties")
+	mainbtns.Settings := Maingui.add("Button","disabled w" . FontLarge * 15, "World Properties")
 	mainbtns.Settings.OnEvent("SelectServer_Settings")
-	Maingui.add("Button", , "Import World").OnEvent("SelectServer_Import")
+	Maingui.add("Button","w" . FontLarge * 15, "Import World").OnEvent("SelectServer_Import")
 	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore")
 	Maingui.add("Link", , "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall")
 	
@@ -459,15 +459,6 @@ MainGUIGUIClose(Event := "") {
 
 }
 
-ExtractServerNames() {
-	For index, uniquename in ServerList
-	{
-		NamesList := NamesList . "|" . IniRead(uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled server")
-	}
-	return StrReplace(NamesList,"|",,,1)
-}
-
-
 
 GetServerList() {
 	l_List := []
@@ -707,7 +698,7 @@ Class ConnectionsLV_Menu {
 }
 
 class Server { ;---------------------Class Server-----------------------------------------------
-	
+    ;------Properties
 	name[] {
 		get {
 			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled Server")
@@ -830,6 +821,14 @@ class Server { ;---------------------Class Server-------------------------------
 			IniWrite(v,this.uniquename . "\QuickServer.ini","QuickServer","EULAAgree")
 		}
 	}
+	Enable_Status[] {
+		get {
+			return (this.props["enable-status"] = "true") ? "Online" : "Incognito"
+		}
+		set {
+			this.props["enable-status"] := (value = "Online") ? "true" : "false"
+		}
+	}
 	props := {}
 	
 	__New(uniquename := "") {
@@ -901,33 +900,29 @@ class Server { ;---------------------Class Server-------------------------------
 	Ctrls := {}
 	Ctrlprop := {}
 	
-	Settings() { ;  -------Settings---------------
+	Settings() { ;  ------------------Settings---------------
 		this.LoadProps()
 		
 		Lgui := new Gui(,"Server Properties")
 		this.SettingsWin := Lgui
 		Lgui.OnEvent(Server.Save.Bind(this),"Close")
+		Lgui.OnEvent(Server.SettingModify.Bind(this),"Normal")
 		Lgui.font("s" . FontLarge)
 		this.ctrlprop["name"] := Lgui.add("Edit","w" . FontNormal * 70,this.name)
 		Lgui.font("s" . FontNormal)
 		
 		Lgui.Add("Tab3","Choose1"
-			, "General|Gameplay|World Generation|Plugins and Datapacks|Resource Pack|Security and Permissions").OnEvent(Server.TabChange.Bind(this))
+			, "File|Status|Gameplay|World Generation|Plugins/Datapacks|Resource Pack|Security|Performance").OnEvent(Server.TabChange.Bind(this))
 		
 		{ ; General
 		Lgui.Tab(1)
 			Lgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
 			
-			Lgui.add("link","xs", "`nServer Description (a.k.a MOTD`; as seen on Multiplayer menu).`nGo to <a href=""https://minecraft.tools/en/motd.php"">https://minecraft.tools/en/motd.php</a> to generate nice-looking MOTD")
-			this.ctrls["motd"] := Lgui.add("Edit","w" . FontNormal * 70,this.props["motd"])
-			
 			Lgui.add("text","xs", "`nCurrent version: " . this.version . "`nPress the button below to either update the current version to the latest build`n(i.e. if the server says it is out of date) or upgrade the server to a newer`nversion of Minecraft.")
 			Lgui.add("Button","xs w" . FontNormal * 15, "Update/Upgrade").OnEvent(Server.UpdateThisServer.Bind(this))
 			Lgui.add("text","xs"," ")
 			
-			Lgui.add("Edit","xs section")
-			this.ctrlprop["RAM"] := Lgui.add("UpDown", ,this.RAM)
-			Lgui.add("text","ys", "Maximum Server Memory (in Gigabytes)`n")
+			
 			
 			Lgui.add("Button","xs section w" . FontNormal * 15, "Backup").OnEvent(Server.Backup.Bind(this))
 			Lgui.add("Button","ys w" . FontNormal * 15, "Duplicate").OnEvent(Server.Duplicate.Bind(this))
@@ -935,8 +930,23 @@ class Server { ;---------------------Class Server-------------------------------
 			Lgui.add("text","xs section","`n")
 		}
 		
+		{ ; Status
+			Lgui.Tab(2)
+			this.ctrlprop["Enable_Status"] := Lgui.Add("ListBox","section r2","Online|Incognito")
+			this.ctrlprop["Enable_Status"].ChooseString(this.Enable_Status)
+			Lgui.add("text","ys","Status")
+			
+			
+			Lgui.add("text",,"`n""Message of the Day"" (MOTD)")
+			this.motdmaker := new motdmaker(Lgui,this.uniquename,this.props["motd"])
+			this.ctrls["motd"] := this.motdmaker.motd
+			
+			this.ctrlprop["Enable_Status"].OnEvent(this.motdmaker.ChangeStatus.Bind(this.motdmaker,this.ctrlprop["Enable_Status"]),"Normal")
+			this.motdmaker.ChangeStatus(this.ctrlprop["Enable_Status"])
+		}
+		
 		{ ; Gameplay
-		Lgui.tab(2)
+		Lgui.tab(3)
 						
 			this.ctrls["gamemode"] := Lgui.add("DropDownList","section", "survival|creative|adventure|spectator")
 			Lgui.add("text","ys", "Default Gamemode")
@@ -951,10 +961,8 @@ class Server { ;---------------------Class Server-------------------------------
 			this.ctrls["pvp"] := Lgui.add("CheckBox","xs Checked" . Bool(this.props["pvp"]), "Allow PVP (player vs player)")
 			this.ctrls["pvp"].IsBool := true
 			
+			Lgui.add("text","xs"," ")
 			
-			this.Add_UpDown("view-distance", "Render Distance","Range3-32")
-			
-			this.Add_UpDown("entity-broadcast-range-percentage","Entity render distance (percentage)", "Range0-500")
 			
 			
 			this.ctrls["spawn-monsters"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["spawn-monsters"])
@@ -969,17 +977,16 @@ class Server { ;---------------------Class Server-------------------------------
 				, "Automatically Spawn Animals")
 			this.ctrls["spawn-animals"].IsBool := true
 			
-			Lgui.add("Link", "xs section", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
-			Lgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
+
 		}
 		
 		{ ; World Generation
-		Lgui.tab(3)
+		Lgui.tab(4)
 			Lgui.add("text","section","Some of these settings will only apply when generating the world for the first time`n")
 			this.ctrls["level-seed"] := Lgui.add("Edit","xs section",this.props["level-seed"])
 			Lgui.add("text","ys", "Custom World Seed")
 			
-			this.ctrls["level-type"] := Lgui.add("ComboBox", "xs section","Default|Flat|LargeBiomes|Amplified|Buffet")
+			this.ctrls["level-type"] := Lgui.add("ComboBox", "xs section","default|flat|largeBiomes|amplified|buffet")
 			this.ctrls["level-type"].Text := this.props["level-type"]
 			Lgui.add("text", "ys", "Generation type -- If you are using a custom plugin as a generator put its ID here")
 			
@@ -992,19 +999,19 @@ class Server { ;---------------------Class Server-------------------------------
 		}
 		
 		{ ; Plugins and Datapacks
-		Lgui.tab(4)
+		Lgui.tab(5)
 			Lgui.add("text",, "Easily import Spigot Plugins and datapacks!")
 			Lgui.Add("Link",,"You can find plugins at <a href=""https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count""> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.`nIt is recommended that you backup your server before using plugins.")
 			Lgui.add("Button",, "Backup").OnEvent(Server.Backup.Bind(this))
 			
-			new PluginsGUI(Lgui, "Plugins", this.uniquename)
-			new PluginsGUI(Lgui, "Datapacks", this.uniquename)
+			new PluginsGUI(Lgui, "Plugins", this.uniquename,false)
+			new PluginsGUI(Lgui, "Datapacks", this.uniquename,true)
 		}
 			
 		{ ; Resource packs
-		Lgui.tab(5)
+		Lgui.tab(6)
 			Lgui.add("text","section","Include a resource pack (texture pack) in this server`n`nPaste a valid downloadable link to a resource/texture pack")
-			this.ctrls["resource-pack"] := Lgui.Add("Edit","xs section w" . FontNormal * 70, this.props["resource-pack"])
+			this.ctrls["resource-pack"] := Lgui.Add("Edit","xs section w" . FontNormal * 60, this.props["resource-pack"])
 			Lgui.add("text","xs"," ")
 			
 			this.Add_Edit("resource-pack-sha1","SHA-1 -- Paste the file's SHA-1 hash here")
@@ -1017,7 +1024,7 @@ class Server { ;---------------------Class Server-------------------------------
 		}
 		
 		{ ; Security
-			Lgui.Tab(6)
+			Lgui.Tab(7)
 			
 			Lgui.add("Edit","section")
 			this.ctrls["max-players"] := Lgui.add("UpDown",, this.props["max-players"])
@@ -1042,8 +1049,6 @@ class Server { ;---------------------Class Server-------------------------------
 			this.ctrls["spawn-protection"] := Lgui.add("UpDown", , this.props["spawn-protection"])
 			Lgui.add("text","ys", "Spawn Grief-Protection Radius")
 			
-				
-			this.Add_UpDown("player-idle-timeout","AFK limit (If non-zero, this kicks anyone who is unresponsive for ___ minutes)")
 			
 			this.Add_CheckBox("online-mode","Check Player ID (players may not be in ""offline mode"")")
 			this.Add_CheckBox("allow-flight","Permit Flight-Hacks (otherwise, illegally flying players are kicked)")
@@ -1061,17 +1066,43 @@ class Server { ;---------------------Class Server-------------------------------
 			
 		}
 		
-		
+		{ ; Performance
+			Lgui.tab(8)
+			
+			Lgui.add("Edit","section")
+			this.ctrlprop["RAM"] := Lgui.add("UpDown", ,this.RAM)
+			Lgui.add("text","ys", "Maximum Server Memory (in gigabytes)`n")
+			
+			this.Add_UpDown("view-distance", "Render Distance","Range3-32")
+			
+			this.Add_UpDown("entity-broadcast-range-percentage","Entity render distance (percentage)", "Range0-500")
+			
+			this.Add_UpDown("max-world-size","World Size (radius, in blocks)", "Range1-29999984")
+			
+			this.Add_UpDown("player-idle-timeout","AFK limit (If non-zero, this kicks anyone who is unresponsive for ___ minutes)")
+		}
 		
 		Lgui.tab()
-		Lgui.Add("Button","section default","  Save  ").OnEvent(Server.Save.Bind(this),"Normal")
-		Lgui.add("Button", "ys", " Cancel ").OnEvent(Server.ReloadSettings.Bind(this))
+		Lgui.Add("Button","section default w" . FontNormal * 10,"OK").OnEvent(Server.Save.Bind(this),"Normal")
+		Lgui.add("Button", "ys w" . FontNormal * 10, "Cancel").OnEvent(Server.ReloadSettings.Bind(this))
+		this.applybtn := Lgui.add("Button", "ys w" . FontNormal * 10,"Apply")
+		this.applybtn.OnEvent(Server.Apply.Bind(this),"Normal")
+		this.applybtn.Enabled := false
+		
+		Lgui.add("Link", "ys", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
+		Lgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
 		
 		
 		Lgui.show("Autosize Center")
 	}
 	
 	
+	SettingModify(Event) {
+		If InStr("Edit|CheckBox|UpDown|DropDownList|ListBox",Event.Control.Type) and (Event.Control.Type != "")
+		{
+			this.applybtn.Enabled := true
+		}
+	}
 	FlushProps() {
 		FilePath := this.uniquename . "\server.properties"
 		For key, ctrl in this.ctrls
@@ -1104,14 +1135,18 @@ class Server { ;---------------------Class Server-------------------------------
 		}
 		
 	}
-	Save(Event := "") {
+	Apply(Event := "") {
+		this.applybtn.Enabled := false
 		this.FlushProps()
 		this.DateModified := A_Now
 		ChooseServerWindow()
-		this.SettingsWin.Destroy()
 		If this.IsRunning {
 			MsgBox, 262208, Server Properties, Use the /reload command or restart the server to apply changes, 10
 		}
+	}
+	Save(Event := "") {
+		this.Apply(Event)
+		this.SettingsWin.Destroy()
 	}
 	
 	ReloadSettings() {
@@ -1213,22 +1248,18 @@ class Server { ;---------------------Class Server-------------------------------
 		this.SettingsWin.add("text","ys", label)
 	}
 	
-	__Delete() {
-		If this.IsRunning {
-			WinClose, % "ahk_pid " . this.ProcessID
-		}
-	}
+	
 }
 
 Class PluginsGUI { ;-----------------Plugins Window ---
 	
-	__New(Guiobj, type, uniquename) {
+	__New(Guiobj, type, uniquename,append := false) {
 		this.type := type
 		this.uniquename := uniquename
 		this.Folder := (type = "plugins") ? "plugins" : "world\datapacks"
 		this.ext := (type = "plugins") ? ".jar" : ".zip"
 		
-		Guiobj.Add("Button",,"Import " . type).OnEvent(PluginsGUI.Import.Bind(this))
+		Guiobj.Add("Button",append ? "ys" : "section","Import " . type).OnEvent(PluginsGUI.Import.Bind(this))
 		this.LV := Guiobj.Add("ListView", "AltSubmit Checked R7 Sort", "Enabled " . type)
 		this.LV.OnEvent(PluginsGUI.Modify.Bind(this), "Normal")
 		this.LV.OnEvent(PluginsGUI.Import.Bind(this), "DropFiles")
@@ -1292,6 +1323,236 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 		}
 	}
 		
+}
+
+
+class MotdMaker {  ;-----------------Motd Maker    ----
+	__New(guiobj, uniquename, initial) {
+		this.temphtml := DefaultDir . "\Motd_helper\" . uniquename . ".html"
+		
+		this.gui := guiobj
+		this.editor := this.gui.add("Edit","xs section r2 +WantReturn w450")
+		this.applybtn := this.gui.add("Button","xs","^^^ Apply Formatting ^^^")
+		this.applybtn.OnEvent(MotdMaker.AddFormat.Bind(this),"Normal")
+		this.Colrctrl := this.gui.add("DropDownList","xs section Choose9",	this.styleKeyColorName_Parse)
+		this.Boldctrl := this.gui.add("CheckBox",    ,"Bold"        )
+		this.Undectrl := this.gui.add("CheckBox","ys","Underlined  ")
+		this.Italctrl := this.gui.add("CheckBox",    ,"Italic"      )
+		this.Strictrl := this.gui.add("CheckBox","ys","Strike-thru" )
+		this.Corrctrl := this.gui.add("CheckBox",    ,"Corrupted"   )
+		
+		this.editor.OnEvent(MotdMaker.EditIt.Bind(this))
+		this.renderer := this.gui.add("ActiveX","xs section h60 w450","shell.Explorer").Contents
+		this.renderer.silent := true
+		this.motd := this.gui.add("Edit","r1 w450",initial)
+		this.motd.OnEvent(MotdMaker.Render_Pre.Bind(this),"Normal")
+		this.parseraw()
+		this.render()
+	}
+	EditIt() {
+		Critical
+		If not this.motd.focus
+			this.motd.Contents := StrReplace(StrReplace("&r" . this.editor.Contents,"`n","\n&r"),"&","\u00A7")
+	}
+	
+	Render_Pre(Event := "") {
+		Critical
+		If this.motd.Focus
+		{
+			this.parseraw()
+		}
+		Critical
+		this.render()
+	}
+	
+	Render(Event := "") {
+		
+		linelist := StrSplit(this.motd.Contents, "\n")
+		Line_1 := this.ConvertToHtml(linelist[1])
+		Line_2 := this.ConvertToHtml(linelist[2])
+		html =
+			( LTrim
+				<html>
+					<head>
+						<style>
+							@font-face {
+								font-family: mcFont;
+								  src: url('mcFont.eot'); /* IE9 Compat Modes */
+								  src: url('mcFont.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
+									   }
+						</style>
+					</head>
+					<body style="background-image: Url('img/Motd_Background.jpg'); font-family: mcFont; font-size:90`%; color: DarkGray">
+							<span style="color: black"></span>%Line_1%
+							<br>
+							<span style="color: black"></span>%Line_2%
+							</br>
+					</body>
+				</html>
+			)
+		FileDelete, % this.temphtml
+		FileAppend, % html, % this.temphtml
+		this.renderer.Navigate("file:///" . this.temphtml)
+	}
+	
+	parseraw() {
+		v := StrReplace(StrReplace(this.motd.Contents,"\u00A7","&"),"\n&r","`n")
+		v := StrReplace(v, "\n","`n")
+		v := (InStr(v,"&r") = 1) ? Substr(v, 3) : v
+		this.editor.Contents := v
+	}
+	
+	ConvertToHtml(motd) {
+		l_html_a := ""
+		
+		stree := []
+		For ind_b, stext in StrSplit("8" . motd,"\u00A7")
+		{
+			l_style := SubStr(stext, 1, 1)
+			l_text := StrReplace(SubStr(stext, 2), A_Space, "<span style=""color:black"">_</span>") ;renders spaces as invisible _'s
+		;	MsgBox,,,% l_style . l_text
+			If not this.stylekeyreset[l_style] {
+				
+			}
+			Else {
+				l_html_b := ""
+				For ind_c, l_text_b in stree
+				{
+					l_html_b .= l_text_b
+				}
+				l_html_a .= l_html_b
+				stree := []
+			}
+			stree.InsertAt(ind_b, this.stylekey[l_style] . l_text, this.styleendkey[l_style])
+		}
+		l_html_b := ""
+		For ind_c, l_text_b in stree
+		{
+			l_html_b .= l_text_b
+		}
+		l_html_a .= l_html_b
+		return l_html_a
+	}
+	
+	AddFormat(Event := "") {
+		Critical
+		colname := this.Colrctrl.Contents
+		For l_colcode, l_colname in this.styleKeyColorName
+		{
+			If (colname = l_colname)
+			{
+				colcode := "&" . l_colcode
+				break
+			}
+		}
+		bold := this.boldctrl.Contents ? "&l" : ""
+		unde := this.undectrl.Contents ? "&n" : ""
+		ital := this.italctrl.Contents ? "&o" : ""
+		stri := this.strictrl.Contents ? "&m" : ""
+		corr := this.corrctrl.Contents ? "&k" : ""
+		this.editor.Contents .= colcode . bold . unde . ital . stri . corr
+	}
+	
+	static stylekey := {nulll : ""
+		, 0 : "<span style=""color:     Black"">"
+		, 1 : "<span style=""color:  DarkBlue"">"
+		, 2 : "<span style=""color: DarkGreen"">"
+		, 3 : "<span style=""color:  DarkCyan"">"
+		, 4 : "<span style=""color:   DarkRed"">"
+		, 5 : "<span style=""color:    Indigo"">"
+		, 6 : "<span style=""color:    Orange"">"
+		, 7 : "<span style=""color: LightGray"">"
+		, 8 : "<span style=""color:  DarkGray"">"
+		, 9 : "<span style=""color:      Blue"">"
+		, a : "<span style=""color:     Green"">"
+		, b : "<span style=""color:      Cyan"">"
+		, c : "<span style=""color:       Red"">"
+		, d : "<span style=""color:    Purple"">"
+		, e : "<span style=""color:    Yellow"">"
+		, f : "<span style=""color:     White"">"
+		
+		, l : "<b>"
+		, n : "<ins>"
+		, o : "<i>"
+		, m : "<del>"
+		, k : "<b><ins><i><del>"
+		, r : ""}
+	static styleendkey := {nulll : ""
+		, 0 : "</span>"
+		, 1 : "</span>"
+		, 2 : "</span>"
+		, 3 : "</span>"
+		, 4 : "</span>"
+		, 5 : "</span>"
+		, 6 : "</span>"
+		, 7 : "</span>"
+		, 8 : "</span>"
+		, 9 : "</span>"
+		, a : "</span>"
+		, b : "</span>"
+		, c : "</span>"
+		, d : "</span>"
+		, e : "</span>"
+		, f : "</span>"
+		
+		, l : "</b>"
+		, n : "</ins>"
+		, o : "</i>"
+		, m : "</del>"
+		, k : "</del></i></ins></b>"
+		, r : ""}
+	static stylekeyreset := {nulll : ""
+		, 0 : true
+	    , 1 : true
+	    , 2 : true
+	    , 3 : true
+	    , 4 : true
+	    , 5 : true
+	    , 6 : true
+	    , 7 : true
+	    , 8 : true
+	    , 9 : true
+	    , a : true
+	    , b : true
+	    , c : true
+	    , d : true
+	    , e : true
+	    , f : true
+	    
+	    , l : false
+	    , n : false
+	    , o : false
+	    , m : false
+	    , k : false
+	    , r : true}
+	static styleKeyColorName := {0 : "Black", 1 : "Dark Blue", 2 : "Dark Green", 3 : "Dark Cyan", 4 : "Dark Red", 5 : "Indigo"
+			, 6 : "Orange",7 : "Light Gray", 8 : "Dark Gray", 9 : "Blue", a : "Green", b : "Cyan", c : "Red", d : "Purple"
+			, e : "Yellow", f : "White"}
+		
+	styleKeyColorName_Parse[] {
+		get {
+			v := ""
+			For index, ColrName in this.styleKeyColorName
+			{
+				v .= (A_index = 1) ? ColrName : "|" . ColrName
+			}
+			return v
+		}
+	}
+	
+	ChangeStatus(controlobj) {
+		v := (controlobj.Contents = "Online")
+		this.applybtn.Enabled := v
+		this.colrCtrl.Enabled := v
+		this.Boldctrl.Enabled := v
+		this.UndeCtrl.Enabled := v
+		this.ItalCtrl.Enabled := v
+		this.StriCtrl.Enabled := v
+		this.CorrCtrl.Enabled := v
+		this.editor.Enabled   := v
+		this.motd.Enabled     := v
+	}
+	
 }
 
 
