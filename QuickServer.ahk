@@ -1087,12 +1087,12 @@ class Server { ;---------------------Class Server-------------------------------
 		Lgui.add("Button", "ys w" . FontNormal * 10, "Cancel").OnEvent(Server.ReloadSettings.Bind(this))
 		this.applybtn := Lgui.add("Button", "ys w" . FontNormal * 10,"Apply")
 		this.applybtn.OnEvent(Server.Apply.Bind(this),"Normal")
-		this.applybtn.Enabled := false
+		
 		
 		Lgui.add("Link", "ys", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
 		Lgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
-		
-		
+		sleep, -1
+		this.applybtn.Enabled := false
 		Lgui.show("Autosize Center")
 	}
 	
