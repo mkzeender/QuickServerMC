@@ -1,9 +1,10 @@
-;----------------------------------- Quick Modifications --------------
+{ ;----------------------------------- Quick Modifications --------------
 
 global             DefaultDir := A_AppData "\.QuickServer"
 global Enable_CheckForUpdates := true
 global             defaultRAM := 2
 global                  debug := false
+}
 
 { ;--------------------------------  AUTORUN ----------------------------------
 
@@ -30,16 +31,21 @@ global ServerList
 global SelectedUniquename
 global ngrok := new NgrokHandler
 
-If FileExist("QuickServer.ico") {
+try {
 	menu, tray, icon, QuickServer.ico
 }
 
 If Enable_CheckForUpdates {
 	(new UpdateManager).Check()
+	
+	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
+		UpdateServer("latest")
+	}
 }
 
 
 OnExit("ExitFunc")
+
 
 BuildServerWindow()
 SetBatchLines, 20ms
@@ -116,10 +122,10 @@ class UpdateManager {
 }
 
 CheckPortableMode() {
-	UsePortable := IniRead(A_ScriptDir . "\QuickServer.ini", "QuickServer", "EnablePortableMode", 0)
-	If not FileExist(DefaultDir . "\QuickServer.ini") and not UsePortable ;----prompt for installation
+	UsePortable := IniRead(A_ScriptDir . "\QuickServer.ini", "QuickServer", "EnablePortableMode", -1)
+	If (UsePortable = -1) ;----prompt for installation
 	{
-		msgbox, 0x23, Install QuickServer, Would you like to install QuickServer on this computer? Press Yes to install. Press No to use QuickServer Portable (i.e. if you want to run it on a flash drive).
+		msgbox, 0x23, Install QuickServer, Would you like to install QuickServer? Press Yes to install. Press No to use QuickServer Portable.
 		IfMsgBox Cancel
 			ExitApp
 		IfMsgBox No
@@ -127,6 +133,21 @@ CheckPortableMode() {
 			DefaultDir := A_ScriptDir
 			Enable_CheckForUpdates := false
 			IniWrite(true, A_ScriptDir . "\QuickServer.ini", "QuickServer", "EnablePortableMode")
+			
+			If not FileExist("ngrok.exe") {
+				If A_Is64bitOS {
+					URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip, ngrok.zip
+				}
+				Else {
+					URLDownloadToFile, https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-386.zip, ngrok.zip
+				}
+				try runwait, tar.exe -x -f ngrok.zip,,hide
+				FileDelete, ngrok.zip
+			}
+		}
+		IfMsgBox Yes
+		{
+			IniWrite(false, DefaultDir . "\QuickServer.ini", "QuickServer", "EnablePortableMode")
 		}
 	}
 	Else If UsePortable
@@ -134,6 +155,7 @@ CheckPortableMode() {
 		DefaultDir := A_ScriptDir
 		Enable_CheckForUpdates := false
 	}
+	
 }
 
 CheckSingleInstance() {
@@ -163,8 +185,6 @@ ErrorFunc(exception) {
 }
 
 { ;----------------------------------Main GUI (SelectServer) Window-------------------------------- 
-
-
 
 ChooseServerWindow() {
 	global MainGui_ServerListView
@@ -197,7 +217,7 @@ BuildServerWindow() {
 	MainGui := new Gui(, "QuickServer")
 	MainGui.Font("s" . FontNormal)
 	LV_width := FontNormal * 50
-	Listctrl := MainGui.add("ListView", "altsubmit R15 w" . LV_width . " -Multi", "World|DateFormat|uniquename|Date Modified")
+	Listctrl := MainGui.add("ListView", "altsubmit R15 w" . LV_width . " -Multi", "World|DateFormat|Uniquename|Date Modified")
 
 	Listctrl.LV_ModifyCol(1, FontNormal * 30)
 	Listctrl.LV_ModifyCol(1, "Sort")
@@ -209,28 +229,27 @@ BuildServerWindow() {
 	MainGui_ServerListView := Listctrl
 	ListCtrl.OnEvent(ServerLV_Menu.Show.Bind(ServerLV_Menu), "ContextMenu")
 	
-	global mainbtns
-	mainbtns := {}
+	global mainbtns := {}
 	MainGui.add("text","ym")
 	MainGui.Font("s" . FontLarge)
-	Maingui.add("Button","w" . FontLarge * 15 , "New World").OnEvent("Button_Main_NewServer")
+	Maingui.add("Button","w" . FontLarge * 15 , "New World").OnEvent("Button_Main_NewServer","Normal")
 	mainbtns.Run := Maingui.add("Button","disabled w" . FontLarge * 15,"Open World")
-	mainbtns.Run.OnEvent("SelectServer_Run")
+	mainbtns.Run.OnEvent("SelectServer_Run","Normal")
 	mainbtns.Settings := Maingui.add("Button","disabled w" . FontLarge * 15, "World Properties")
-	mainbtns.Settings.OnEvent("SelectServer_Settings")
-	Maingui.add("Button","w" . FontLarge * 15, "Import World").OnEvent("SelectServer_Import")
-	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore")
-	Maingui.add("Link", , "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall")
+	mainbtns.Settings.OnEvent("SelectServer_Settings","Normal")
+	Maingui.add("Button","w" . FontLarge * 15, "Import World").OnEvent("SelectServer_Import","Normal")
+	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore","Normal")
+	Maingui.add("Link",, "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall","Normal")
 	
 	Maingui.Font("s" . FontNormal)
 	ConnectionsWindow.Include(MainGui)
 	
 	Maingui.add("button","hidden default","Enter").OnEvent("SelectServer_Default","normal")
-	MainGui.OnEvent(Func("MainGUIGUIClose"),"Close")
+	MainGui.OnEvent("MainGUIGUIClose","Close")
+	MainGui.OnEvent("SelectServer_DropFiles", "DropFiles")
 	MainGui.show("Autosize Center")
 	ChooseServerWindow()
 }
-
 
 Class ServerLV_Menu {
 	Build() {
@@ -279,6 +298,138 @@ Class ServerLV_Menu {
 	}
 }
 
+Class ImportServerWin {
+	static savesdir := A_AppData . "\.minecraft\saves"
+	__New() {
+		this.Gui := new Gui("","Import Server")
+		this.Gui.font("s" . FontNormal)
+		v := this.Gui.add("Text",,"Double-click a singleplayer world below, `nOr drop a world folder, server folder, `n or .zip file here")
+		this.LVctrl := this.Gui.add("ListView","-multi -hdr r10 w" . v.w, "Folder")
+		Loop, Files, % this.savesdir . "\*.*", D
+		{
+			this.LVctrl.LV_Add(,A_LoopFileName)
+		}
+		this.LVctrl.OnEvent(ObjBindMethod(this,"LVClick"), "Normal")
+		this.Gui.add("Button","w" . FontNormal * 10, "Browse...").OnEvent(ObjBindMethod(this,"Browse"))
+		this.Gui.add("Link", "section", "<a>Import a zip file instead</a>").OnEvent(ObjBindMethod(this, "ZipButton"))
+		this.Gui.add("Button","w" . FontNormal * 10, "Cancel").OnEvent(ObjBindMethod(this.Gui,"Destroy"))
+		this.Gui.OnEvent(ObjBindMethod(this,"Drop"), "DropFiles")
+		this.Gui.NoClose := -1
+		this.Gui.show("autosize center")
+	}
+	Drop(Event) {
+		this.ImportGen(Event.FileArray[1])
+	}
+	ImportGen(filepath) {
+		Attribs := FileExist(filepath)
+		If not Attribs
+			return errlvl := 1
+		IsDir := InStr(Attribs, "D")
+		If IsDir and FileExist(filepath . "\level.dat")
+		{
+			this.Import(filepath)
+		}
+		Else If IsDir and FileExist(filepath . "\server.properties")
+		{
+			this.ImportEx(filepath)
+		}
+		Loop, Files, % filepath
+		{
+			If (A_LoopFileExt = "zip") {
+				tempFolder := A_Temp . "\.QuickServer\importDropFile"
+				FileRemoveDir, % tempFolder, true
+				FileCreateDir, % tempFolder
+				runwait, tar.exe -x -f "%filepath%", % tempFolder, hide
+				
+				If FileExist(tempFolder . "\level.dat")
+					this.Import(tempFolder)
+				Else If FileExist(tempFolder . "\server.properties")
+					this.ImportEx(tempFolder)
+				Else {
+					Loop, Files, % tempFolder . "\*.*", D
+					{
+						If FileExist(A_LoopFilePath . "\level.dat") {
+							this.Import(A_LoopFilePath)
+							break
+						}
+						Else If FileExist(A_LoopFilePath . "\server.properties") {
+							this.ImportEx(A_LoopFilePath)
+							break
+						}
+						Else
+						{
+							ErrLvl += 1
+						}
+					}
+				}
+				FileRemoveDir, % tempFolder, true
+			}
+			Else {
+				ErrLvl += 1
+			}
+			break
+		}
+		If ErrLvl
+			MsgBox, 16, Import World, Import failed
+	}
+	
+	LVClick(Event) {
+		If not (s := this.LVctrl.LV_GetNext()) {
+			Event.NoClose := true
+			return
+		}
+		this.LVctrl.LV_GetText(worldname,s)
+		this.gui.Destroy()
+		this.Import(this.savesdir . "\" . worldname)
+	}
+	Browse(Event) {
+		r := SelectFolderEx(A_AppData . "\.Minecraft\saves", "Import World",, "Select Folder"
+			,,,, A_AppData . "\.Minecraft\saves")
+		If r.SelectedDir
+			this.ImportGen(r.SelectedDir)
+	}
+	
+	Import(WorldFolder) {
+		If not FileExist(Worldfolder . "\Level.dat")
+			throw Exception("Invalid World Folder",-1)
+		this.gui.Destroy()
+		CreatedServer := new Server("Server")
+		If not CreatedServer.Create("Imported World")
+			return
+		
+		uniquename := CreatedServer.uniquename
+		FileCreateDir, %uniquename%\world
+		If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
+			msgbox, 48,Import World,Some world data could not be imported
+			
+			
+		ChooseServerWindow()
+		CreatedServer.Settings()
+		return
+	}
+	
+	ZipButton(Event) {
+		FileSelectFile, ZipFile,,,Import a world or server in a zip file, Zip archives (*.zip)
+		If ErrorLevel
+			return
+		this.gui.destroy()
+		this.ImportGen(ZipFile)
+	}
+	ImportEx(WorldFolder) {
+		If not FileExist(Worldfolder . "\server.properties")
+			throw Exception("Invalid World Folder",-1)
+		CreatedServer := new Server("Server")
+		If not CreatedServer.Create("Imported Server")
+			return
+		
+		uniquename := CreatedServer.uniquename
+		If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename, true)
+			msgbox, 48,Import World,Some world data could not be imported
+			
+		ChooseServerWindow()
+		CreatedServer.Settings()
+	}
+}
 
 
 { ;Main window buttons
@@ -363,58 +514,14 @@ SelectServer_Settings() {
 	return true
 }
 
-SelectServer_Import() {
-
-	ImportGui := new Gui("-sysmenu","Import Server")
-	ImportGui.font("s" . FontLarge)
-	ImportGui.add("Button", , "Import Singleplayer World").OnEvent("ImportSinglePlayer")
-	ImportGui.add("Button", "ym", "Import a Pre-existing Server").OnEvent("ImportExternalServer")
-	ImportGui.add("Button", "ym", "Cancel")
-	ImportGui.show("autosize center", "Import Server").OnEvent("ImportExternalServer")
-	ImportGui.Wait()
-	ImportGui.Destroy()
+SelectServer_DropFiles(Event) {
+	errlvl := (new ImportServerWin).ImportGen(Event.FileArray[1])
+	If errlvl
+		MsgBox, 16, Import World, QuickServer did not know how to import that.
 }
 
-ImportSinglePlayer() {
-	FileSelectFolder, Worldfolder, %A_AppData%\.minecraft\saves,,Import World Folder
-	If ErrorLevel
-		return
-	If not FileExist(Worldfolder . "\Level.dat")
-		throw Exception("Invalid World Folder",-1)
-		
-	CreatedServer := new Server("Server")
-	If not CreatedServer.Create("Imported Server")
-		return
-	
-	uniquename := CreatedServer.uniquename
-	FileCreateDir, %uniquename%\world
-	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
-		msgbox, 48,Import World,Some world data could not be imported
-		
-		
-	ChooseServerWindow()
-	CreatedServer.Settings()
-	return
-}
-
-ImportExternalServer() {
-	FileSelectFolder, Worldfolder,,,Import Server Folder (folder should contain a server.properties file)
-	If ErrorLevel
-		return
-	If not FileExist(Worldfolder . "\server.properties")
-		throw Exception("Invalid World Folder",-1)
-		
-	CreatedServer := new Server("Server")
-	If not CreatedServer.Create("Imported Server")
-		return
-	
-	uniquename := CreatedServer.uniquename
-	If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename)
-		msgbox, 48,Import World,Some world data could not be imported
-		
-		
-	ChooseServerWindow()
-	CreatedServer.Settings()
+SelectServer_Import(Event := "") {
+	new ImportServerWin
 }
 
 SelectServer_Restore() {
@@ -423,7 +530,7 @@ SelectServer_Restore() {
 		return
 	SplashTextOn,,,Importing...
 	FileCreateDir, %A_Temp%\.QuickServer\import
-	runwait, tar.exe -x -f %SelectedFile%,%A_Temp%\.QuickServer\import,hide
+	runwait, tar.exe -x -f "%SelectedFile%", %A_Temp%\.QuickServer\import,hide
 	NewUniquename := UniqueFolderCreate("Server")
 	OriginFolder := "null"
 	Loop, Files, %A_Temp%\.QuickServer\import\Server_*, D
@@ -452,13 +559,11 @@ ReInstall() {
 	}
 }
 
-
 MainGUIGUIClose(Event := "") {
 	ExitApp
 }
 
 }
-
 
 GetServerList() {
 	l_List := []
@@ -574,7 +679,7 @@ class ConnectionsWindow {
 			ngrok_con := "Disabled"
 		}
 		
-		this.ListCtrl.LV_Modify(2,"Col2",LANIP, this.LAN_CheckConnection() ? "Connected" : (LANIP ? "Probably not connected" : "Not connected"))
+		this.ListCtrl.LV_Modify(2,"Col2",LANIP, this.LAN_CheckConnection() ? "Connected" : (LANIP ? "Possibly connected" : "Not connected"))
 		this.ListCtrl.LV_Modify(3,"Col2",PublicIP,PublicIP ? "Unknown" : "Not connected")
 		this.ListCtrl.LV_Modify(4,"Col2",ngroklink,ngrok_con)
 		
@@ -835,20 +940,29 @@ class Server { ;---------------------Class Server-------------------------------
 		this.uniquename := uniquename
 	}
 	
-		
+	
 	create(name := "New World") {
 		this.version := "latest"
 		this.uniquename := UniqueFolderCreate("Server")
 		if not this.uniquename
 			throw Exception("Missing server", -1)
 		this.name := name
-		If not this.EULAAgree
-			return false
-		this.UpdateThisServer()
-		DefaultPropertiesFile(this.uniquename . "\server.properties")
+		this.Upgrade()
+		this.props_init()
 		this.RAM := defaultRAM
 		this.DateModified := A_Now
+		v := this.EULAAgree
 		return true
+	}
+	
+	props_init() {
+		this.LoadProps()
+		this.props["enable-command-block"] := "true"
+		this.props["level-name"]           := "world"
+		this.props["motd"]                 := "\u00A7rMade using \u00A7b\u00A7lQuickServerMC"
+		this.props["difficulty"]           := "normal"
+		this.props["spawn-protection"]     := "0"
+		this.FlushProps()
 	}
 	
 	start(Event := "") {
@@ -864,15 +978,29 @@ class Server { ;---------------------Class Server-------------------------------
 			MsgBox, 0x14, % this.name, Could not find server installation. Install now?
 			IfMsgBox No
 				return
-			this.UpdateThisServer()
+			this.Upgrade()
 			return
 		}
-		uniquename := this.uniquename
+		Critical
+		this.about_to_run := true
+		CurrentlyRunningServer()
+		If IsObject(CurrentlyRunningServer())
+		{
+			If (CurrentlyRunningServer.uniquename != this.uniquename)
+			{
+				MsgBox, 16, % this.name, You are already running a server! Please close that world and then open this one.
+			}
+			return false
+		}
+		CurrentlyRunningServer(this)
+		
 		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui 2> errorlog.log
 		try FileDelete, % this.uniquename . "\errorlog.log"
 		this.WinID := RunTer(cmd, this.name, this.uniquename)
 		this.DateModified := A_Now
-		Tutorial.Console.Show()
+		(new Tutorial.Console).Show()
+		this.about_to_run := false
+		Critical, off
 		
 		sleep, 2000
 		FileRead,errorlog, % this.uniquename . "\errorlog.log"
@@ -880,7 +1008,7 @@ class Server { ;---------------------Class Server-------------------------------
 			MsgBox, 52, Outdated Server, This server needs to be updated. Would you like to update it now?`nThe server will start in 20 seconds., 16
 			IfMsgBox, Yes
 			{
-				this.UpdateThisServer()
+				this.Update()
 				return false
 			}
 			IfMsgBox, Cancel
@@ -888,12 +1016,17 @@ class Server { ;---------------------Class Server-------------------------------
 				return false
 			}
 		}
-		sleep, 5000
+		
 	}
 	
 	IsRunning[] {
 		get {
+			If this.about_to_run
+				return true
+			
 			return WinExist("ahk_id " . this.WinID)
+		}
+		set {
 		}
 	}
 	
@@ -918,8 +1051,9 @@ class Server { ;---------------------Class Server-------------------------------
 		Lgui.Tab(1)
 			Lgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
 			
-			Lgui.add("text","xs", "`nCurrent version: " . this.version . "`nPress the button below to either update the current version to the latest build`n(i.e. if the server says it is out of date) or upgrade the server to a newer`nversion of Minecraft.")
-			Lgui.add("Button","xs w" . FontNormal * 15, "Update/Upgrade").OnEvent(Server.UpdateThisServer.Bind(this))
+			Lgui.add("text","xs", "`nCurrent version: " . this.version . "`nPress the Update button below to update the current version to the latest build`n(i.e. if the server says it is out of date)")
+			Lgui.add("Button","xs section w" . FontNormal * 15, "Update").OnEvent(Server.Update.Bind(this))
+			Lgui.add("Button","ys w" . FontNormal * 15, "Change Version").OnEvent(Server.Upgrade.Bind(this))
 			Lgui.add("text","xs"," ")
 			
 			
@@ -1137,10 +1271,11 @@ class Server { ;---------------------Class Server-------------------------------
 	}
 	Apply(Event := "") {
 		this.applybtn.Enabled := false
+		this.BegForMoney()
 		this.FlushProps()
 		this.DateModified := A_Now
 		ChooseServerWindow()
-		If this.IsRunning {
+		If (CurrentlyRunningServer().Uniquename = this.uniquename) {
 			MsgBox, 262208, Server Properties, Use the /reload command or restart the server to apply changes, 10
 		}
 	}
@@ -1153,9 +1288,17 @@ class Server { ;---------------------Class Server-------------------------------
 		this.SettingsWin.Destroy()
 	}
 	
-	UpdateThisServer(Event := "") {
-		InputBox, newversion, Update or Select Version, Enter the desired version(example: 1.16.1).`n`nType "latest" to use the latest version.,,,,,,,, % this.version
-		If not Errorlevel {
+	
+	Upgrade(Event := "") {
+		InputBox, newversion, Select Version, Enter the desired version (example: 1.16.4).`n`nType "latest" to use the latest version.,,,,,,,, % this.version
+		If Errorlevel or (newversion = "") {
+			return
+		}
+		If FileExist(DefaultDir . "\BuildTools\spigot-" . newversion . ".jar") {
+			this.JarFile := DefaultDir . "\BuildTools\spigot-" . newversion . ".jar"
+			this.Version := newversion
+		}
+		Else {
 			UpdateResult := UpdateServer(newversion)
 			if not UpdateResult.confirmed
 				DownloadFailed(this)
@@ -1166,6 +1309,13 @@ class Server { ;---------------------Class Server-------------------------------
 		If (Event.EventType = "Normal") {
 			this.Save()
 			this.Settings()
+		}
+	}
+	Update(Event := "") {
+		UpdateResult := UpdateServer(this.version)
+		if not UpdateResult.confirmed {
+			throw Exception("Update Failed")
+			return
 		}
 	}
 	Backup() {
@@ -1248,7 +1398,18 @@ class Server { ;---------------------Class Server-------------------------------
 		this.SettingsWin.add("text","ys", label)
 	}
 	
+	BegForMoney() {
+		n := this.ctrls["max-players"].Contents
+		If (n > 8) and (n > this.props["max-players"])
+			(new Tutorial.Donate).Show()
+	}
+}
+
+CurrentlyRunningServer(server := "") {
+	static curr_server := ""
+	curr_server := server.IsRunning ? server : curr_server.IsRunning ? curr_server : ""
 	
+	return curr_server
 }
 
 Class PluginsGUI { ;-----------------Plugins Window ---
@@ -1324,7 +1485,6 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 	}
 		
 }
-
 
 class MotdMaker {  ;-----------------Motd Maker    ----
 	__New(guiobj, uniquename, initial) {
@@ -1555,16 +1715,38 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 	
 }
 
-
-Class Tutorial {
-	
-	Class Console {
+class Tutorial {   ;-----------------Tutorial
+	Class T_Type {
 		Show() {
-			If IniRead("QuickServer.ini", "Tutorial", "Console", false)
+			If this.NoShow
 				return
 			
 			this.gui := new gui("AlwaysOnTop -sysmenu","Tutorial")
 			this.gui.Font("s" . FontNormal)
+			this.gui.Add("Link",,this.LinkText())
+			If not this.SuppressNoShow {
+				this.hidctrl := this.gui.Add("CheckBox",,"Don't show this again")
+			}
+			this.gui.Add("Button",,"  OK  ").OnEvent(Tutorial.Console.Close.Bind(this))
+			this.gui.OnEvent(Tutorial.Console.Close.Bind(this),"Close")
+			this.Extra()
+			this.gui.Show("AutoSize Center")
+		}
+		Close(Event := "") {
+			this.NoShow := this.hidctrl.Contents
+			this.gui.Destroy()
+		}
+	}
+	Class Console extends Tutorial.T_Type {
+		NoShow[] {
+			get {
+				return IniRead("QuickServer.ini", "Tutorial", "Console", false)
+			}
+			set {
+				IniWrite(value,"QuickServer.ini","Tutorial","Console")
+			}
+		}
+		LinkText() {
 			v =
 				( LTrim ,
 				The console window allows you to run commands ("cheats"). Commands should NOT begin with a slash (/) when used here.
@@ -1578,22 +1760,37 @@ Class Tutorial {
 				/say <message>           --- puts a message into chat
 				/stop                    --- closes the server
 				
-				For a complete guide to commands, click <a href="https://minecraft.gamepedia.com/Commands">here</a>
+				For a complete guide to Minecraft commands, <a href="https://minecraft.gamepedia.com/Commands">click here</a>
 				
 				)
-			this.gui.Add("Link",,v)
-			this.hidctrl := this.gui.Add("CheckBox",,"Don't show this again")
-			this.gui.Add("Button",,"  OK  ").OnEvent(Tutorial.Console.Close.Bind(this))
-			this.gui.OnEvent(Tutorial.Console.Close.Bind(this),"Close")
-			this.gui.Show("AutoSize Center")
+			return v
 		}
-		Close(Event := "") {
-			IniWrite(this.hidctrl.Contents,"QuickServer.ini","Tutorial","Console")
-			this.gui.Destroy()
+	}
+	
+	class Donate extends Tutorial.T_Type {
+		static SuppressNoShow := true
+		static NoShow := false
+		LinkText() {
+			v = 
+				( LTrim
+				Dear Player,
+				
+				It seems like you are growing your server!
+				I'm glad to see that you are enjoying QuickServer.
+				
+				Please consider donating because it really helps me keep this software going. 
+				
+				Thanks!
+				~Developer
+				
+				<a>Donate Now</a>
+				
+				)
+			return v
 		}
 	}
 }
-	
+
 { ;----------------------------------Technical----------
 
 Bool(value) {
@@ -1641,9 +1838,9 @@ UniqueFolderCreate(DesiredName := "Server") {
 
 RunTer(command, windowtitle, startingdir := "") {
 	run, cmd.exe /c %command%, %startingdir%,, cmdPID
-
+	
 	WinWait, ahk_pid %cmdPID%
-	winHWND := WinExist("ahk_pid " . cmdPID)
+	winHWND := WinExist()
 	WinBlur(100)
 	WinSetTitle, %windowtitle%
 	return winHWND
@@ -1675,7 +1872,6 @@ GetFontDefault() {
 
 }
 
-
 class eulaWindow { ;-----------------EULA-----------------------
 	waiting := true
 	__New(uniquename) {
@@ -1705,6 +1901,64 @@ class eulaWindow { ;-----------------EULA-----------------------
 	}
 }
 
+class Spigot { ;    -----------------Spigot installation
+	class Installation {
+		__New(version) {
+			version := StrReplace(version,A_Space)
+			If (InStr(version,"1.") = 1)
+			{
+				subv := StrReplace(version, "1.",,, 1)
+				If subv is number
+				{
+					this.version := version
+				}
+			}
+		}
+		Confirmed[] {
+			get {
+				return (not this.version and FileExist(this.JarFile))
+			}
+		}
+		JarFile[] {
+			get {
+				return DefaultDir . "\BuildTools\spigot-" . this.version . ".jar"
+			}
+		}
+	}
+	
+	Choose_Inst_Window(defaultversion := "latest") {
+		l_gui := new gui(,"Installations")
+		l_gui.Font("s" . FontNormal)
+		l_gui.add("Text",,"Enter the desired version (example: 1.16.4).`n`nType ""latest"" to use the latest version")
+		
+		l_list := "latest"
+		For index, inst in Spigot.GetInstallations()
+		{
+			l_list .= "|" . inst
+		}
+		versctrl := l_gui.add("ComboBox",,l_list)
+		versctrl.Text := Defaultversion
+		
+		btn := l_gui.add("Button","default w" . FontNormal * 10, "OK")
+		
+		l_gui.NoClose := true
+		while not ((e := l_gui.Wait()).Control.Type = "Button") and not (e.EventType = "Close")
+		{
+		}
+		newVersion := versctrl.Text
+		l_gui.destroy()
+		return new Spigot.Installation(newVersion)
+	}
+	
+	GetInstallations() {
+		inst_array := []
+		Loop, Files, %DefaultDir%\BuildTools\spigot-*.jar
+		{
+			inst_array.Push(new Spigot.Installation(StrReplace(StrReplace(A_LoopFileName,".jar"), "spigot-")))
+		}
+		return inst_array
+	}
+}
 
 { ;----------------------------------Update---------------
 UpdateServer(version := "latest") {
@@ -1787,58 +2041,58 @@ DownloadFailed(byref this) {
 
 DefaultPropertiesFile(FilePath) {
 	FileAppend,
-	(
-enable-jmx-monitoring=false
-rcon.port=25575
-level-seed=
-gamemode=survival
-enable-command-block=true
-enable-query=false
-generator-settings=
-level-name=world
-motd=Made Using QuickServerMC
-query.port=25565
-pvp=true
-generate-structures=true
-difficulty=easy
-network-compression-threshold=256
-max-tick-time=60000
-max-players=20
-use-native-transport=true
-online-mode=true
-enable-status=true
-allow-flight=false
-broadcast-rcon-to-ops=true
-view-distance=10
-max-build-height=256
-server-ip=
-allow-nether=true
-server-port=25565
-enable-rcon=false
-sync-chunk-writes=true
-op-permission-level=4
-prevent-proxy-connections=false
-resource-pack=
-entity-broadcast-range-percentage=100
-rcon.password=
-player-idle-timeout=0
-force-gamemode=false
-rate-limit=0
-hardcore=false
-white-list=false
-broadcast-console-to-ops=true
-spawn-npcs=true
-spawn-animals=true
-snooper-enabled=true
-function-permission-level=2
-level-type=default
-spawn-monsters=true
-enforce-whitelist=false
-resource-pack-sha1=
-spawn-protection=16
-max-world-size=29999984
-require-resource-pack=false
-), %FilePath%
+	( Ltrim
+		enable-jmx-monitoring=false
+		rcon.port=25575
+		level-seed=
+		gamemode=survival
+		enable-command-block=true
+		enable-query=false
+		generator-settings=
+		level-name=world
+		motd=Made Using QuickServerMC
+		query.port=25565
+		pvp=true
+		generate-structures=true
+		difficulty=easy
+		network-compression-threshold=256
+		max-tick-time=60000
+		max-players=8
+		use-native-transport=true
+		online-mode=true
+		enable-status=true
+		allow-flight=false
+		broadcast-rcon-to-ops=true
+		view-distance=10
+		max-build-height=256
+		server-ip=
+		allow-nether=true
+		server-port=25565
+		enable-rcon=false
+		sync-chunk-writes=true
+		op-permission-level=4
+		prevent-proxy-connections=false
+		resource-pack=
+		entity-broadcast-range-percentage=100
+		rcon.password=
+		player-idle-timeout=0
+		force-gamemode=false
+		rate-limit=0
+		hardcore=false
+		white-list=false
+		broadcast-console-to-ops=true
+		spawn-npcs=true
+		spawn-animals=true
+		snooper-enabled=true
+		function-permission-level=2
+		level-type=default
+		spawn-monsters=true
+		enforce-whitelist=false
+		resource-pack-sha1=
+		spawn-protection=16
+		max-world-size=29999984
+		require-resource-pack=false
+	), %FilePath%
 
 }
 
