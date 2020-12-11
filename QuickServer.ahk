@@ -1488,7 +1488,7 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 
 class MotdMaker {  ;-----------------Motd Maker    ----
 	__New(guiobj, uniquename, initial) {
-		this.temphtml := DefaultDir . "\Motd_helper\" . uniquename . ".html"
+		this.temphtml := DefaultDir . "\" . uniquename . "_MOTD.html"
 		
 		this.gui := guiobj
 		this.editor := this.gui.add("Edit","xs section r2 +WantReturn w450")
@@ -1542,7 +1542,7 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 									   }
 						</style>
 					</head>
-					<body style="background-image: Url('img/Motd_Background.jpg'); font-family: mcFont; font-size:90`%; color: DarkGray">
+					<body style="background-image: Url('Motd_Background.jpg'); font-family: mcFont; font-size:90`%; color: DarkGray">
 							<span style="color: black"></span>%Line_1%
 							<br>
 							<span style="color: black"></span>%Line_2%
@@ -1713,6 +1713,9 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 		this.motd.Enabled     := v
 	}
 	
+	__Delete() {
+		FileDelete, % this.temphtml
+	}
 }
 
 class Tutorial {   ;-----------------Tutorial
