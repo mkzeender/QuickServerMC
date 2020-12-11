@@ -2170,5 +2170,6 @@ CopyFilesAndFolders(SourcePattern, DestinationFolder, DoOverwrite = false)
 
 { ; -----------------------------    INCLUDES -------------------
 	return
+	#Include, %A_ScriptDir%\SelectFolderEx.ahk
 	#Include, %A_ScriptDir%\GuiObject.ahk
 }
