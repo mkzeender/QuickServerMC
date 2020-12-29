@@ -1,8 +1,9 @@
 { ;----------------------------------- Quick Modifications --------------
 
 global             DefaultDir := A_AppData "\.QuickServer"
+global                Temp := A_Temp . "\.QuickServer"
 global Enable_CheckForUpdates := true
-global             defaultRAM := 2
+global             defaultRAM := "1.5GB"
 global                  debug := false
 }
 
@@ -11,6 +12,7 @@ global                  debug := false
 { ;AutoExec section
 SetBatchLines, -1
 #NoTrayIcon
+#NoEnv
 If debug {
 	Menu, tray, icon
 }
@@ -26,6 +28,7 @@ CheckSingleInstance()
 CheckPortableMode()
 FileCreateDir, %DefaultDir%
 SetWorkingDir, %DefaultDir%
+FileCreateDir, %Temp%
 
 global ServerList
 global SelectedUniquename
@@ -39,7 +42,10 @@ If Enable_CheckForUpdates {
 	(new UpdateManager).Check()
 	
 	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
-		UpdateServer("latest")
+		inf := UpdateServer("latest")
+		FileCreateDir, Installations
+		If inf.confirmed
+			FileCopy, % inf.uniquename, % "Installations\" . inf.version . ".jar"
 	}
 }
 
@@ -171,6 +177,7 @@ CheckSingleInstance() {
 }
 
 ExitFunc() {
+	Clear_Temp_Files()
 	ngrok.stop()
 }
 
@@ -298,140 +305,6 @@ Class ServerLV_Menu {
 	}
 }
 
-Class ImportServerWin {
-	static savesdir := A_AppData . "\.minecraft\saves"
-	__New() {
-		this.Gui := new Gui("","Import Server")
-		this.Gui.font("s" . FontNormal)
-		v := this.Gui.add("Text",,"Double-click a singleplayer world below, `nOr drop a world folder, server folder, `n or .zip file here")
-		this.LVctrl := this.Gui.add("ListView","-multi -hdr r10 w" . v.w, "Folder")
-		Loop, Files, % this.savesdir . "\*.*", D
-		{
-			this.LVctrl.LV_Add(,A_LoopFileName)
-		}
-		this.LVctrl.OnEvent(ObjBindMethod(this,"LVClick"), "Normal")
-		this.Gui.add("Button","w" . FontNormal * 10, "Browse...").OnEvent(ObjBindMethod(this,"Browse"))
-		this.Gui.add("Link", "section", "<a>Import a zip file instead</a>").OnEvent(ObjBindMethod(this, "ZipButton"))
-		this.Gui.add("Button","w" . FontNormal * 10, "Cancel").OnEvent(ObjBindMethod(this.Gui,"Destroy"))
-		this.Gui.OnEvent(ObjBindMethod(this,"Drop"), "DropFiles")
-		this.Gui.NoClose := -1
-		this.Gui.show("autosize center")
-	}
-	Drop(Event) {
-		this.ImportGen(Event.FileArray[1])
-	}
-	ImportGen(filepath) {
-		Attribs := FileExist(filepath)
-		If not Attribs
-			return errlvl := 1
-		IsDir := InStr(Attribs, "D")
-		If IsDir and FileExist(filepath . "\level.dat")
-		{
-			this.Import(filepath)
-		}
-		Else If IsDir and FileExist(filepath . "\server.properties")
-		{
-			this.ImportEx(filepath)
-		}
-		Loop, Files, % filepath
-		{
-			If (A_LoopFileExt = "zip") {
-				tempFolder := A_Temp . "\.QuickServer\importDropFile"
-				FileRemoveDir, % tempFolder, true
-				FileCreateDir, % tempFolder
-				runwait, tar.exe -x -f "%filepath%", % tempFolder, hide
-				
-				If FileExist(tempFolder . "\level.dat")
-					this.Import(tempFolder)
-				Else If FileExist(tempFolder . "\server.properties")
-					this.ImportEx(tempFolder)
-				Else {
-					Loop, Files, % tempFolder . "\*.*", D
-					{
-						If FileExist(A_LoopFilePath . "\level.dat") {
-							this.Import(A_LoopFilePath)
-							break
-						}
-						Else If FileExist(A_LoopFilePath . "\server.properties") {
-							this.ImportEx(A_LoopFilePath)
-							break
-						}
-						Else
-						{
-							ErrLvl += 1
-						}
-					}
-				}
-				FileRemoveDir, % tempFolder, true
-			}
-			Else {
-				ErrLvl += 1
-			}
-			break
-		}
-		If ErrLvl
-			MsgBox, 16, Import World, Import failed
-	}
-	
-	LVClick(Event) {
-		If not (s := this.LVctrl.LV_GetNext()) {
-			Event.NoClose := true
-			return
-		}
-		this.LVctrl.LV_GetText(worldname,s)
-		this.gui.Destroy()
-		this.Import(this.savesdir . "\" . worldname)
-	}
-	Browse(Event) {
-		r := SelectFolderEx(A_AppData . "\.Minecraft\saves", "Import World",, "Select Folder"
-			,,,, A_AppData . "\.Minecraft\saves")
-		If r.SelectedDir
-			this.ImportGen(r.SelectedDir)
-	}
-	
-	Import(WorldFolder) {
-		If not FileExist(Worldfolder . "\Level.dat")
-			throw Exception("Invalid World Folder",-1)
-		this.gui.Destroy()
-		CreatedServer := new Server("Server")
-		If not CreatedServer.Create("Imported World")
-			return
-		
-		uniquename := CreatedServer.uniquename
-		FileCreateDir, %uniquename%\world
-		If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
-			msgbox, 48,Import World,Some world data could not be imported
-			
-			
-		ChooseServerWindow()
-		CreatedServer.Settings()
-		return
-	}
-	
-	ZipButton(Event) {
-		FileSelectFile, ZipFile,,,Import a world or server in a zip file, Zip archives (*.zip)
-		If ErrorLevel
-			return
-		this.gui.destroy()
-		this.ImportGen(ZipFile)
-	}
-	ImportEx(WorldFolder) {
-		If not FileExist(Worldfolder . "\server.properties")
-			throw Exception("Invalid World Folder",-1)
-		CreatedServer := new Server("Server")
-		If not CreatedServer.Create("Imported Server")
-			return
-		
-		uniquename := CreatedServer.uniquename
-		If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename, true)
-			msgbox, 48,Import World,Some world data could not be imported
-			
-		ChooseServerWindow()
-		CreatedServer.Settings()
-	}
-}
-
-
 { ;Main window buttons
 
 SelectServer_ListView(Event) {
@@ -515,9 +388,7 @@ SelectServer_Settings() {
 }
 
 SelectServer_DropFiles(Event) {
-	errlvl := (new ImportServerWin).ImportGen(Event.FileArray[1])
-	If errlvl
-		MsgBox, 16, Import World, QuickServer did not know how to import that.
+	errlvl := (new ImportServerWin).Drop(Event)
 }
 
 SelectServer_Import(Event := "") {
@@ -529,20 +400,22 @@ SelectServer_Restore() {
 	If Errorlevel
 		return
 	SplashTextOn,,,Importing...
-	FileCreateDir, %A_Temp%\.QuickServer\import
-	runwait, tar.exe -x -f "%SelectedFile%", %A_Temp%\.QuickServer\import,hide
+	
+	tmp := Temp . "\import"
+	FileCreateDir, % tmp
+	runwait, tar.exe -x -f "%SelectedFile%", % tmp ,hide
 	NewUniquename := UniqueFolderCreate("Server")
 	OriginFolder := "null"
-	Loop, Files, %A_Temp%\.QuickServer\import\Server_*, D
+	Loop, Files, % tmp . "\Server_*", D
 	{
-		OriginFolder := A_LoopFileName
+		OriginFolder := A_LoopFileFullPath
 	}
-	If not FileExist(A_Temp . "\.QuickServer\import\" . OriginFolder . "\server.properties") {
+	If not FileExist(OriginFolder . "\server.properties") {
 		SplashTextOff
 		throw Exception("Could not open " . SelectedFile)
 	}
-	CopyFilesAndFolders(A_Temp . "\.QuickServer\import\" . OriginFolder . "\*.*", NewUniquename, true)
-	FileRemoveDir, %A_Temp%\.QuickServer\import, true
+	CopyFilesAndFolders(OriginFolder . "\*.*", NewUniquename, true)
+	FileRemoveDir, % OriginFolder, true
 	SplashTextOff
 	ImportedServer := new Server(NewUniquename)
 	ImportedServer.name := ImportedServer.name . "--backup"
@@ -575,6 +448,162 @@ GetServerList() {
 	return l_List
 }
 
+}
+
+
+Class ImportServerWin {
+	static savesdir := A_AppData . "\.minecraft\saves"
+	__New() {
+		this.Gui := new Gui("","Import Server")
+		this.Gui.font("s" . FontNormal)
+		v := this.Gui.add("Text",,"Select a singleplayer world below, or drop a world folder, server folder, or .zip file here")
+		this.LVctrl := this.Gui.add("ListView","-multi -hdr r10 altSubmit w" . v.w, "Folder")
+		Loop, Files, % this.savesdir . "\*.*", D
+		{
+			this.LVctrl.LV_Add(,A_LoopFileName)
+		}
+		this.LVctrl.OnEvent(ObjBindMethod(this,"LVClick"), "Normal")
+		this.Pathctrl := this.Gui.add("Edit", "section w" . v.w)
+		
+		this.Gui.add("Button","xs section w" . FontNormal * 15, "Browse for a Folder").OnEvent(ObjBindMethod(this,"Browse"), "Normal")
+		this.Gui.add("Button", "ys w" . FontNormal * 15, "Browse for a zip file").OnEvent(ObjBindMethod(this, "ZipButton"), "Normal")
+		this.Gui.add("Button", "xs section default w" . FontNormal * 10, "Import").OnEvent(ObjBindMethod(this, "ImportBtn"), "normal")
+		this.Gui.add("Button","ys w" . FontNormal * 10, "Cancel").OnEvent(ObjBindMethod(this.Gui,"Destroy"), "normal")
+		this.Gui.OnEvent(ObjBindMethod(this,"Drop"), "DropFiles")
+		this.Gui.NoClose := -1
+		this.Gui.show("autosize center")
+	}
+	
+	Drop(Event) {
+		this.Pathctrl.Contents := Event.FileArray[1]
+	}
+	
+	ImportBtn(Event) {
+		errlvl := this.ImportGen(this.PathCtrl.Contents)
+		If errlvl
+			this.Gui.Destroy()
+	}
+	
+	ImportGen(filepath) {
+		Attribs := FileExist(filepath)
+		If not Attribs or not filepath
+			return errlvl := 1
+		IsDir := InStr(Attribs, "D")
+		If IsDir and FileExist(filepath . "\level.dat")
+		{
+			this.Import(filepath)
+		}
+		Else If IsDir and FileExist(filepath . "\server.properties")
+		{
+			this.ImportEx(filepath)
+		}
+		Else {
+			Loop, Files, % filepath
+			{
+				If (A_LoopFileExt = "zip") {
+					tempFolder := Temp . "\importDropFile"
+					FileRemoveDir, % tempFolder, true
+					FileCreateDir, % tempFolder
+					runwait, tar.exe -x -f "%filepath%", % tempFolder, hide
+					
+					If FileExist(tempFolder . "\level.dat")
+						this.Import(tempFolder)
+					Else If FileExist(tempFolder . "\server.properties")
+						this.ImportEx(tempFolder)
+					Else {
+						Loop, Files, % tempFolder . "\*.*", D
+						{
+							If FileExist(A_LoopFilePath . "\level.dat") {
+								this.Import(A_LoopFilePath)
+								break
+							}
+							Else If FileExist(A_LoopFilePath . "\server.properties") {
+								this.ImportEx(A_LoopFilePath)
+								break
+							}
+							Else
+							{
+								ErrLvl += 1
+							}
+						}
+					}
+					FileRemoveDir, % tempFolder, true
+				}
+				Else {
+					ErrLvl += 1
+				}
+				break
+			}
+		}
+		If ErrLvl
+			MsgBox, 16, Import World, Import failed
+	}
+	
+	LVClick(Event) {
+		If not (s := this.LVctrl.LV_GetNext()) {
+			Event.NoClose := true
+			return
+		}
+		this.LVctrl.LV_GetText(worldname,s)
+		worldpath := this.savesdir . "\" . worldname
+		If (Event.GuiEvent = "DoubleClick") {
+			this.ImportGen(worldpath)
+		}
+		else {
+			this.Pathctrl.Contents := worldpath
+		}
+	}
+	Browse(Event) {
+		r := SelectFolderEx(A_AppData . "\.Minecraft\saves", "Import World",, "Select Folder"
+			,,,, A_AppData . "\.Minecraft\saves")
+		If r.SelectedDir
+			this.Pathctrl.Contents := r.SelectedDir
+	}
+	
+	Import(WorldFolder) {
+		If not FileExist(Worldfolder . "\Level.dat")
+			throw Exception("Invalid World Folder",-1)
+		this.gui.Destroy()
+		CreatedServer := new Server("Server")
+		name := "Imported World"
+		Loop, Files, % WorldFolder, D
+			name := A_LoopFileName
+		
+		If not CreatedServer.Create(name)
+			return
+		
+		uniquename := CreatedServer.uniquename
+		FileCreateDir, %uniquename%\world
+		If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename . "\world")
+			msgbox, 48,Import World,Some world data could not be imported
+		Try
+			FileMove, % uniquename . "\world\icon.png", % uniquename . "\server-icon.png"
+			
+		ChooseServerWindow()
+		CreatedServer.Settings()
+		return
+	}
+	
+	ZipButton(Event) {
+		FileSelectFile, ZipFile,,,Import a world or server in a zip file, Zip archives (*.zip)
+		If ErrorLevel
+			return
+		this.Pathctrl.Contents := ZipFile
+	}
+	ImportEx(WorldFolder) {
+		If not FileExist(Worldfolder . "\server.properties")
+			throw Exception("Invalid World Folder",-1)
+		CreatedServer := new Server("Server")
+		If not CreatedServer.Create("Imported Server")
+			return
+		
+		uniquename := CreatedServer.uniquename
+		If CopyFilesAndFolders(Worldfolder . "\*.*",uniquename, true)
+			msgbox, 48,Import World,Some world data could not be imported
+			
+		ChooseServerWindow()
+		CreatedServer.Settings()
+	}
 }
 
 Class NgrokHandler { ; --------------Ngrok-----------------------------------
@@ -639,7 +668,9 @@ Class NgrokHandler { ; --------------Ngrok-----------------------------------
 class ConnectionsWindow {
 	
 	Include(Guiobj) {
-		FileCreateDir, %A_Temp%\QuickServer
+		this.tmp := Temp "\Connections"
+		FileCreateDir, % this.tmp
+		
 		Guiobj.Add("Text","xm","Click a connection below for more info and setup`nUse Ngrok if you don't know where to start.")
 		width := FontNormal * 70
 		this.ListCtrl := Guiobj.Add("ListView", "w" . width . " AltSubmit Count4 Grid R4 noSortHdr", "Name|Address|Status|Connectivity")
@@ -669,7 +700,7 @@ class ConnectionsWindow {
 		this.refreshCtrl.Enabled := false
 		this.refreshCtrl.Text := "Refreshing..."
 		
-		LANIP := (A_IPAddress1 = 0.0.0.0) ? "" : A_IPAddress1
+		LANIP := !(A_IPAddress1 = "0.0.0.0") and !(A_IPAddress1 = "127.0.0.1")
 		PublicIP := this.PublicIP_CheckConnection()
 		If ngrok.Enable {
 			ngroklink := this.ngrok_CheckConnection()
@@ -679,7 +710,13 @@ class ConnectionsWindow {
 			ngrok_con := "Disabled"
 		}
 		
-		this.ListCtrl.LV_Modify(2,"Col2",LANIP, this.LAN_CheckConnection() ? "Connected" : (LANIP ? "Possibly connected" : "Not connected"))
+		this.ListCtrl.LV_Modify(2,"Col2"
+			, A_IPAddress1
+			, this.LAN_CheckConnection()   ? "Connected"
+			: (A_IPAddress1 = "0.0.0.0")   ? "Not connected"
+			: (A_IPAddress1 = "127.0.0.1") ? "Not connected"
+			:                               "Possibly connected")
+			
 		this.ListCtrl.LV_Modify(3,"Col2",PublicIP,PublicIP ? "Unknown" : "Not connected")
 		this.ListCtrl.LV_Modify(4,"Col2",ngroklink,ngrok_con)
 		
@@ -738,11 +775,11 @@ class ConnectionsWindow {
 	
 	
 	LAN_CheckConnection() {
-		If (A_IPAddress1 = 0.0.0.0)
+		If (A_IPAddress1 = "0.0.0.0")
 			return ""
-			
-		runwait,cmd.exe /c powershell Get-NetConnectionProfile > "%A_Temp%\QuickServer\LAN_CheckConnection.txt",,hide
-		try FileRead, landata, %A_Temp%\QuickServer\LAN_CheckConnection.txt
+		tmp := this.tmp
+		runwait,cmd.exe /c powershell Get-NetConnectionProfile > "%tmp%\LAN_CheckConnection.txt",,hide
+		try FileRead, landata, %tmp%\LAN_CheckConnection.txt
 		If not landata
 			return ""
 			
@@ -750,26 +787,28 @@ class ConnectionsWindow {
 		{
 			sep := InStr(A_LoopField, ":")
 			If (Trim(SubStr(A_LoopField,1,sep-1),"`r`n" . A_Space . A_Tab) = "NetworkCategory") {
-				return (Trim(SubStr(A_LoopField,sep+1),"`r`n" . A_Space . A_Tab) = "private") ? A_IPAddress1 : "" ;returns empty string if false
+				return (Trim(SubStr(A_LoopField,sep+1),"`r`n" . A_Space . A_Tab) = "private") ? A_IPAddress1 : "" ;false returns empty
 			}
 		}
 	}
 	
 	PublicIP_CheckConnection() {
-		FileDelete, %A_Temp%\QuickServer\PublicIP.tmp
-		URLDownloadToFile, http://www.whatismyip.org/, %A_Temp%\QuickServer\PublicIP.tmp
-		If not FileExist(A_Temp . "\QuickServer\PublicIP.tmp")
+		tmp := this.tmp
+		FileDelete, %tmp%\PublicIP.tmp
+		URLDownloadToFile, http://www.whatismyip.org/, %tmp%\PublicIP.tmp
+		If not FileExist(tmp . "\PublicIP.tmp")
 			return
-		try FileRead, PublicIP, %A_Temp%\QuickServer\PublicIP.tmp
+		try FileRead, PublicIP, %tmp%\PublicIP.tmp
 		PublicIP := SubStr(PublicIP,InStr(PublicIP, "<a href=""/my-ip-address"">"))
 		PublicIP := SubStr(SubStr(PublicIP, 26, InStr(PublicIP,"</a>") - 26),1,25)
 		return PublicIP
 	}
 	
 	ngrok_CheckConnection() {
-		FileDelete, %A_Temp%\QuickServer\ngrok_CheckConnection.json
-		URLDownloadToFile, http://localhost:4040/api/tunnels/, %A_Temp%\QuickServer\ngrok_CheckConnection.json
-		try FileRead, jsondata, %A_Temp%\QuickServer\ngrok_CheckConnection.json
+		tmp := this.tmp
+		FileDelete, %tmp%\ngrok_CheckConnection.json
+		URLDownloadToFile, http://localhost:4040/api/tunnels/, %tmp%\ngrok_CheckConnection.json
+		try FileRead, jsondata, %tmp%\ngrok_CheckConnection.json
 		If not jsondata
 			return
 		Loop, Parse, jsondata, `,[, {}
@@ -802,8 +841,9 @@ Class ConnectionsLV_Menu {
 }
 }
 
-class Server { ;---------------------Class Server-----------------------------------------------
+class Server { ;---------------------Server-----------------------------------------------
     ;------Properties
+	
 	name[] {
 		get {
 			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "name", "Untitled Server")
@@ -812,12 +852,22 @@ class Server { ;---------------------Class Server-------------------------------
 			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, name
 		}
 	}
+	NiceName[] {
+		get {
+			txt := ""
+			For index, char in StrSplit(this.Name)
+			{
+				txt .= InStr("abcdefghijklmnopqrstuvwxyz0123456789 _-'.!", char) ? char : "_"
+			}
+			return txt
+		}
+	}
 	version[] {
 		get {
 			return, IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "version", "latest") 
 		}
 		set {
-			version := (StrLen(value) < 10) ? value : "ERROR"
+			version := value
 			IniWrite, % version, % this.uniquename . "\QuickServer.ini", QuickServer, version
 		}
 	}
@@ -831,10 +881,30 @@ class Server { ;---------------------Class Server-------------------------------
 	}
 	RAM[] {
 		get {
-			return, IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "RAM")
+			return IniRead(DefaultDir . "\QuickServer.ini", "QuickServer", "RAM", DefaultRam)
 		}
 		set {
-			IniWrite, % value, % this.uniquename . "\QuickServer.ini", QuickServer, RAM
+			v := ""
+			vGB := StrReplace(value, "GB")
+			vMB := StrReplace(value, "MB")
+			If vGB is number
+			{
+				v := vGB . "GB"
+			}
+			Else If vMB is number
+			{
+				v := (vMB / 1024) . "GB"
+			}
+			If v
+				IniWrite, % v, % DefaultDir . "\QuickServer.ini", QuickServer, RAM
+		}
+	}
+	NoGui[] {
+		get {
+			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "NoGui", true)
+		}
+		set {
+			IniWrite(value, this.uniquename . "\QuickServer.ini", "QuickServer", "NoGui")
 		}
 	}
 	JarFile[] {
@@ -972,14 +1042,14 @@ class Server { ;---------------------Class Server-------------------------------
 		}
 		if not this.EULAAgree
 			return false
-		RAM := this.RAM
-		JarFile := this.JarFile
-		If not FileExist(JarFile) or not InStr(JarFile, ".jar") {
+		If (this.version = "latest")
+			this.Upgrade()
+		JarFile := DefaultDir . "\Installations\" . this.version . ".jar"
+		If not FileExist(JarFile) {
 			MsgBox, 0x14, % this.name, Could not find server installation. Install now?
 			IfMsgBox No
 				return
 			this.Upgrade()
-			return
 		}
 		Critical
 		this.about_to_run := true
@@ -994,9 +1064,12 @@ class Server { ;---------------------Class Server-------------------------------
 		}
 		CurrentlyRunningServer(this)
 		
-		cmd = java -Xmx%RAM%G -Xms%RAM%G -jar "%JarFile%" nogui 2> errorlog.log
+		nogui := (!debug and this.NoGui) ? "nogui" : ""
+		
+		RAM := Round(StrReplace(this.RAM, "GB") * 1024)
+		cmd = java -Xmx%RAM%M -Xms%RAM%M -jar "%JarFile%" %nogui% 2> errorlog.log
 		try FileDelete, % this.uniquename . "\errorlog.log"
-		this.WinID := RunTer(cmd, this.name, this.uniquename)
+		this.WinID := RunTer(cmd, this.nicename, this.uniquename)
 		this.DateModified := A_Now
 		(new Tutorial.Console).Show()
 		this.about_to_run := false
@@ -1044,15 +1117,19 @@ class Server { ;---------------------Class Server-------------------------------
 		this.ctrlprop["name"] := Lgui.add("Edit","w" . FontNormal * 70,this.name)
 		Lgui.font("s" . FontNormal)
 		
-		Lgui.Add("Tab3","Choose1"
-			, "File|Status|Gameplay|World Generation|Plugins/Datapacks|Resource Pack|Security|Performance").OnEvent(Server.TabChange.Bind(this))
+		tab := Lgui.Add("Tab3","Choose1"
+			, "File|Status|Gameplay|World Generation|Plugins/Datapacks|Resource Pack|Security|Players|Performance")
+		tab.OnEvent(Server.TabChange.Bind(this))
 		
 		{ ; General
 		Lgui.Tab(1)
 			Lgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
 			
 			Lgui.add("text","xs", "`nCurrent version: " . this.version . "`nPress the Update button below to update the current version to the latest build`n(i.e. if the server says it is out of date)")
-			Lgui.add("Button","xs section w" . FontNormal * 15, "Update").OnEvent(Server.Update.Bind(this))
+			v := Lgui.add("Button","xs section w" . FontNormal * 15, "Update")
+			v.OnEvent(Server.Update.Bind(this))
+			v.Enabled := (this.version = "latest") or InstallationsWin.IsValidVersion(this.version)
+			
 			Lgui.add("Button","ys w" . FontNormal * 15, "Change Version").OnEvent(Server.Upgrade.Bind(this))
 			Lgui.add("text","xs"," ")
 			
@@ -1165,21 +1242,23 @@ class Server { ;---------------------Class Server-------------------------------
 			Lgui.add("text"," ys", "Maximum players")
 			
 			this.Add_CheckBox("white-list","Private (Use the /whitelist command to grant people access)")
-			Lgui.add("Link","xs section","<a>Open Whitelist File</a>").OnEvent(Server.OpenFile.Bind(this,"whitelist.json"))
-			Lgui.add("Link","ys","<a>Open Banlist File</a>`n").OnEvent(Server.OpenFile.Bind(this,"banned-players.json"))
 			
-			
-			
-			this.ctrlprop["op_level"] := Lgui.add("DropDownList","xs section w" . FontNormal * 30 . " choose"
-				. this.props["op-permission-level"]
-				,"No Commands|Singleplayer Commands|Singleplayer and Multiplayer Commands|All Commands")
-			Lgui.add("text","ys","Default OP Permissions")
-			Lgui.add("text", "xs section","Use the /op command to give players these permissions")
-			Lgui.add("text","xs section"
-				,"`nSingleplayer commands include /tp`, /give`, and /kill.`nMultiplayer commands include /whitelist`, /ban`, /op.`nServer-level commands are /stop and /save-[on/off/all]`nAll OPs can bypass the player limit`, whitelist`, grief-protection`, etc.`n")
+			this.Add_UpDown("op-permission-level","Default Operator Level","Range1-4")
+			txt = 
+				( LTrim
+				Use the /op command to make players operators
+				Level 1 OPs can only bypass grief-protection
+				Level 2 OPs	can use singleplayer commands, such as /tp, /give, and /kill
+				Level 3 OPs can also use multiplayer commands, such as /whitelist, /ban, and /op
+				Level 4 OPs can use all commands, including /stop and /save[on/off/all]
+				See the "players" menu to view the OPs
+				
+				)
+			Lgui.add("text","xs section", txt)
 				
 			
-			Lgui.add("Edit","xs section")
+			tmp := Lgui.add("Edit","xs section")
+			TruWidth := tmp.w
 			this.ctrls["spawn-protection"] := Lgui.add("UpDown", , this.props["spawn-protection"])
 			Lgui.add("text","ys", "Spawn Grief-Protection Radius")
 			
@@ -1200,20 +1279,37 @@ class Server { ;---------------------Class Server-------------------------------
 			
 		}
 		
+		{ ; Players
+			Lgui.Tab(8)
+			this.PlayersWin := (new PlayersWindow(this, Lgui))
+		}
+		
 		{ ; Performance
-			Lgui.tab(8)
+			Lgui.tab(9)
+			ww := this.ctrls["spawn-protection"].w
+			hh := this.ctrls["spawn-protection"].h
 			
-			Lgui.add("Edit","section")
-			this.ctrlprop["RAM"] := Lgui.add("UpDown", ,this.RAM)
-			Lgui.add("text","ys", "Maximum Server Memory (in gigabytes)`n")
+			tme := this.ctrlprop["RAM"] := Lgui.add("Edit","section w" TruWidth - ww, this.RAM)
+			tmu := this.RAM_Ctrl_UpDown := Lgui.add("UpDown"
+				,"-16 x" . tme.x + tme.w . " y" . tme.y . " w" . ww . " h" . hh)
+				
+			tme.OnEvent(ObjBindMethod(this, "RAM_Ctrl_Get", false),"normal")
+			tmu.OnEvent(ObjBindMethod(this, "RAM_Ctrl_Get", true), "Normal")
+			this.RAM_Ctrl_Get(,,false)
+			
+			Lgui.add("text","ys", "Maximum Server RAM (applies to all worlds)")
+			
+			this.ctrlprop["NoGui"] := Lgui.add("CheckBox","xs section Checked" . this.NoGui
+				, "Hide Server Window (may improve performance)")
 			
 			this.Add_UpDown("view-distance", "Render Distance","Range3-32")
 			
 			this.Add_UpDown("entity-broadcast-range-percentage","Entity render distance (percentage)", "Range0-500")
 			
-			this.Add_UpDown("max-world-size","World Size (radius, in blocks)", "Range1-29999984")
+			this.Add_UpDown("player-idle-timeout","AFK limit (kicks anyone who is away for __ minutes; 0 = disabled)")
 			
-			this.Add_UpDown("player-idle-timeout","AFK limit (If non-zero, this kicks anyone who is unresponsive for ___ minutes)")
+			this.Add_UpDown("max-world-size","World Size (radius, in blocks)", "Range1-29999984")
+			this.Add_UpDown("max-build-height", "World Height (in blocks)", "Range1-256")
 		}
 		
 		Lgui.tab()
@@ -1230,7 +1326,26 @@ class Server { ;---------------------Class Server-------------------------------
 		Lgui.show("Autosize Center")
 	}
 	
-	
+	RAM_Ctrl_Get(UpDnToEdit := false, Event := "", doFocus := true) {
+		Edt := this.ctrlprop["RAM"]
+		Updn := this.RAM_Ctrl_UpDown
+		If UpDnToEdit {
+			Edt.Contents := v := Format("{1:.4}",Updn.Contents / 10) . "GB"
+		}
+		Else If !doFocus or Edt.Focus {
+			vGB := StrReplace(Edt.Contents, "GB")
+			vMB := StrReplace(Edt.Contents, "MB")
+			If vGB is number
+			{
+				UpDn.Contents := v := Round(vGB * 10)
+			}
+			Else If vMB is number
+			{
+				UpDn.Contents := v := Round(vMB / 102.4)
+			}
+		}
+		return v
+	}
 	SettingModify(Event) {
 		If InStr("Edit|CheckBox|UpDown|DropDownList|ListBox",Event.Control.Type) and (Event.Control.Type != "")
 		{
@@ -1273,6 +1388,7 @@ class Server { ;---------------------Class Server-------------------------------
 		this.applybtn.Enabled := false
 		this.BegForMoney()
 		this.FlushProps()
+		this.PlayersWin.SavePlayerList()
 		this.DateModified := A_Now
 		ChooseServerWindow()
 		If (CurrentlyRunningServer().Uniquename = this.uniquename) {
@@ -1281,27 +1397,27 @@ class Server { ;---------------------Class Server-------------------------------
 	}
 	Save(Event := "") {
 		this.Apply(Event)
-		this.SettingsWin.Destroy()
+		this.ReloadSettings()
 	}
 	
 	ReloadSettings() {
 		this.SettingsWin.Destroy()
+		this.PlayersWin := ""  ;releases object
 	}
 	
 	
 	Upgrade(Event := "") {
-		InputBox, newversion, Select Version, Enter the desired version (example: 1.16.4).`n`nType "latest" to use the latest version.,,,,,,,, % this.version
-		If Errorlevel or (newversion = "") {
+		
+		UpdateResult := new InstallationsWin(this.Version)
+		if UpdateResult.Canceled
+		{
 			return
 		}
-		If FileExist(DefaultDir . "\BuildTools\spigot-" . newversion . ".jar") {
-			this.JarFile := DefaultDir . "\BuildTools\spigot-" . newversion . ".jar"
-			this.Version := newversion
+		if not UpdateResult.confirmed {
+			DownloadFailed(this)
+			return
 		}
-		Else {
-			UpdateResult := UpdateServer(newversion)
-			if not UpdateResult.confirmed
-				DownloadFailed(this)
+		else {
 			this.Version := UpdateResult.version
 			this.JarFile := UpdateResult.uniquename
 			this.UseLatest := UpdateResult.IsLatest
@@ -1317,14 +1433,24 @@ class Server { ;---------------------Class Server-------------------------------
 			throw Exception("Update Failed")
 			return
 		}
+		this.version := (this.version = "latest") ? UpdateResult.version : this.version
+		FileCreateDir, Installations
+		FileCopy, % UpdateResult.uniquename, % DefaultDir . "\Installations\" . this.version . ".jar", true
 	}
 	Backup() {
-		backup_folder := this.uniquename
+		backup_folder := this.nicename
 		FileSelectFile, v, S16, %backup_folder%.zip, Save Backup, Zip Archives (*.zip)
-		If not Errorlevel
+		If ErrorLevel
+			return
+		Loop, Files, % v
 		{
-			Run, tar -a -c -f %v% %backup_folder%,,hide
+			If !(A_LoopFileExt = "zip")
+				v .= ".zip"
+			break
 		}
+		
+		Run, tar -a -c -f "%v%" "%backup_folder%",,hide
+		
 	}
 	
 	
@@ -1410,6 +1536,543 @@ CurrentlyRunningServer(server := "") {
 	curr_server := server.IsRunning ? server : curr_server.IsRunning ? curr_server : ""
 	
 	return curr_server
+}
+
+class InstallationsWin {
+	__New(currentversion := "latest") {
+		this.currentversion := currentversion
+		this.gui := new Gui("AlwaysOnTop", "Installations")
+		this.gui.Font("s" . FontNormal)
+		this.gui.add("Text",,"Enter the desired version (example: 1.16.4).`nType ""latest"" to use the latest version.`n")
+		
+		v := this.gui.add("Link",
+		,"You can also download and import a modded server (i.e., Forge or Paper).`n<a>Click here to import installation</a>")
+		v.OnEvent(ObjBindMethod(this, "ImportBtn"), "Normal")
+		
+		this.versctrl := this.gui.add("ComboBox","w" . FontNormal * 20, "latest|" . this.GetVersions(true))
+		this.versctrl.Text := this.currentversion
+		this.versctrl.focus := true
+		
+		this.gui.add("Button","default section w" . FontNormal * 10, "OK").OnEvent(ObjBindMethod(this, "OKbtn"), "Normal")
+		this.gui.add("Button","ys w" . FontNormal * 10, "Cancel").OnEvent(ObjBindMethod(this, "CancelBtn"), "Normal")
+		
+		this.gui.NoClose := true
+		this.gui.OnEvent(ObjBindMethod(this, "CancelBtn"), "Close")
+		this.gui.OnEvent(ObjBindMethod(this, "Drop"), "DropFiles")
+		this.waiting := true
+		this.gui.Show()
+		Critical, off
+		While (this.waiting = true)
+		{
+			sleep, 50
+		}
+		If this.Canceled {
+			this.Confirmed := false
+			this.gui.Destroy()
+			return this
+		}
+		newversionraw := this.versctrl.Text
+		newversion := StrReplace(newversionraw, A_Space)
+		this.gui.Destroy()
+		
+		If !(newversion = "latest") and FileExist(DefaultDir . "\Installations\" . newversionraw . ".jar") {
+			this.JarFile := "\Installations\" . newversionraw . ".jar"
+			this.Version := newversionraw
+			this.Confirmed := true
+		}
+		Else If !(newversion = "latest") and FileExist(DefaultDir . "\Installations\" . newversion . ".jar") {
+			this.JarFile := "\Installations\" . newversion . ".jar"
+			this.Version := newversion
+			this.Confirmed := true
+		}
+		Else If (newversion = "latest") or this.IsValidVersion(newversion) {
+			UpdateResult := UpdateServer(newversion)
+			this.confirmed := UpdateResult.confirmed
+			this.Version := UpdateResult.version
+			PreJarFile := UpdateResult.uniquename
+			this.UseLatest := UpdateResult.IsLatest
+			If not this.confirmed
+				return this
+			
+			FileCreateDir, Installations
+			FileCopy, % PreJarFile, % "Installations\" this.Version . ".jar", true
+			this.JarFile := "Installations\" this.Version . ".jar"
+		}
+		else
+		{
+			this.confirmed := false
+		}
+		return this
+	}
+	IsValidVersion(ver) {
+		If not (InStr(ver, "1.") = 1)
+			return false
+		subver := SubStr(ver, 3)
+		If subver is number
+			return true
+		else
+			return false
+	}
+	OKBtn(Event) {
+		this.Waiting := false
+		this.Canceled := false
+	}
+	CancelBtn(Event) {
+		this.Waiting := false
+		this.Canceled := true
+	}
+	Drop(Event) {
+		If not Event.FileArray[1]
+			return
+		
+		this.Import(Event.FileArray[1])
+	}
+	ImportBtn(Event) {
+		FileSelectFile,file,,,Import an installation of Minecraft Server, Java Executables (*.jar)
+		If Errorlevel
+			return
+		this.Import(File)
+	}
+	Import(File) {
+		Loop, Files, % File
+		{
+			If not (A_LoopFileExt = "jar")
+				continue
+			
+			version := SubStr(A_loopFileName, 1, StrLen(A_LoopFileName) - 4)
+			FileCopy, % A_LoopFilePath, % DefaultDir . "\Installations\" . A_LoopFileName
+			this.versctrl.Contents := version
+			this.versctrl.Text := version
+		}
+	}
+	
+	GetVersions(parse := false) {
+		list := []
+		parselist := ""
+		Loop, Files, % DefaultDir . "\Installations\*.jar"
+		{
+			name := SubStr(A_LoopFileName, 1,StrLen(A_LoopFileName) - 4)
+			list.Push(name)
+			parselist .= (A_Index = 1) ? name : "|" . name
+		}
+		return parse ? parselist : list
+	}
+}
+
+class PlayersWindow { ;--------------Players Window
+	__New(server, inclgui := "") {
+		this.server := server
+		this.IsEmbedded := IsObject(inclgui)
+		this.gui := this.IsEmbedded ? inclgui : new Gui
+		this.Init()
+	}
+	Init() {
+		g := this.gui
+		
+		this.LV := g.add("ListView","altsubmit grid r10 w" . FontNormal * 65
+			,"Name|Clearance|More Info|User ID")
+		this.LV.LV_ModifyCol(1, FontNormal * 15)
+		this.LV.LV_ModifyCol(2, FontNormal * 15)
+		this.LV.LV_ModifyCol(3, FontNormal * 20)
+		this.LV.OnEvent(ObjBindMethod(this,"LV_EditPlayer"),"Normal")
+		
+		g.add("Button",, "Add Player ").OnEvent(ObjBindMethod(this,"LV_AddPlayer"), "Normal")
+		g.add("Button",, "Edit Player").OnEvent(ObjBindMethod(this,"LV_EditPlayer"), "Normal")
+		
+		this.LoadPlayerList()
+		this.LV_Refresh()
+		this.server.ctrls["white-list"].OnEvent(ObjBindMethod(this, "LV_Refresh"), "Normal")
+	}
+	
+	LV_AddPlayer(Event := "") {
+		InputBox, plName, Add Player, Username:
+		If ErrorLevel
+			return
+		
+		UUID := this.GetUUID(plName)
+		player := this.GetPlayer(UUID)
+		If (player = "")
+		{
+			try
+				name := this.GetName(UUID)
+			catch
+				name := plName
+			this.raw.users.Push({name : name, uuid : UUID})
+			player := new this.Player(UUID, this)
+			this.LV_Refresh()
+		}
+		player.EditWindow()
+	}
+	LV_EditPlayer(Event) {
+		If (Event.GuiEvent = "Normal" or Event.GuiEvent = "RightClick") and (v := this.LV.LV_GetNext())
+		{
+			this.LV.LV_GetText(uuid, v, 4)
+			this.GetPlayer(uuid).EditWindow()
+		}
+	}
+	LV_Refresh() {
+		this.LV.LV_Delete()
+		For index, p in this.GetPlayerList()
+		{
+			stat := p.GetStatus()
+			this.LV.LV_Add(,p.name, stat.Clear, stat.Inf, p.UUID)
+		}
+		
+		If not This.IsEmbedded
+		{
+			this.gui.add("Button","w" . FontNormal * 10,"Save").OnEvent(ObjBindMethod(this,"SavePlayerList"), "Normal")
+			this.gui.NoClose := -1
+			this.gui.Show()
+		}
+	}
+	GetPlayer(uuid) {
+		For index, player in this.raw.users
+		{
+			If (uuid = player.uuid)
+				return new this.player(player.uuid, this)
+		}
+	}
+	GetPlayerList() {
+		l := []
+		For index, playerr in this.raw.users
+		{
+			l.Push(new this.player(playerr.uuid, this))
+		}
+		return l
+	}
+	LoadPlayerList() {
+		this.raw := {}
+		this.raw.ForceWhiteList := Bool(this.server.props["white-list"])
+		this.raw.uniquename := this.Server.uniquename
+		
+		try
+			FileRead, plistjsn, % DefaultDir "\" this.Server.uniquename "\usercache.json"
+		catch
+			plistjsn := "[]"
+		this.raw.users := JSON.Load(plistjsn)
+		try 
+			FileRead, banlistjsn, % DefaultDir "\" this.Server.uniquename "\banned-players.json"
+		catch
+			banlistjsn := "[]"
+		this.raw.Banned_Players := JSON.Load(banlistjsn)
+		try
+			FileRead, whitelistjsn, % DefaultDir "\" this.Server.uniquename "\whitelist.json"
+		catch
+			whitelistjsn := "[]"
+		This.raw.WhiteList := JSON.Load(whitelistjsn)
+		
+		try
+			FileRead, opsjsn, % DefaultDir "\" this.Server.uniquename "\ops.json"
+		catch
+			opsjsn := "[]"
+		this.raw.Ops := JSON.Load(opsjsn)
+		
+	}
+	SavePlayerList(Event := "") {
+		FileMove, % DefaultDir "\" this.Server.uniquename "\usercache.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
+		FileAppend, % JSON.Dump(this.raw.users,,4), % DefaultDir "\" this.Server.uniquename "\usercache.json"
+		FileMove, % DefaultDir "\" this.Server.uniquename "\banned-players.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
+		FileAppend, % JSON.Dump(this.raw.Banned_Players,,4), % DefaultDir "\" this.Server.uniquename "\banned-players.json"
+		FileMove, % DefaultDir "\" this.Server.uniquename "\whitelist.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
+		FileAppend, % JSON.Dump(this.raw.WhiteList,,4), % DefaultDir "\" this.Server.uniquename "\whitelist.json"
+		FileMove, % DefaultDir "\" this.Server.uniquename "\ops.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
+		FileAppend, % JSON.Dump(this.raw.Ops,ObjBindMethod(this,"JSONMakeBoolean"),4), % DefaultDir "\" this.Server.uniquename "\ops.json"
+		
+		
+		If not this.IsEmbedded and (Event.EventType = "Normal")
+		{
+			this.gui.Destroy()
+		}
+	}
+	GetUUID(name) {
+		uuid := ""
+		For index, player in this.GetPlayerList()
+		{
+			If (name = player.name)
+			{
+				UUID := player.uuid
+			}
+		}
+		If (UUID = "") {
+			tmp := Temp . "\UUIDDownload.tmp"
+			FileDelete, % tmp
+			URLDownloadToFile, % "https://minecraft-techworld.com/admin/api/uuid?action=uuid&username=" . name, % tmp
+			
+			FileRead, temptxt, % tmp
+			jsn := SubStr(temptxt, v := InStr(temptxt, "{"), InStr(temptxt, "}",,-1) - v)
+			try
+				inf := JSON.Load(jsn)
+			catch ex
+				throw Exception("Could not find user. Make sure you are connected to the internet",,ex.Message)
+			If not inf.success
+				throw Exception(inf.error ? inf.error : "Could not find user.")
+			uuid := inf.output
+		}
+		return uuid
+	}
+	GetName(UUID) {
+		name := ""
+		For index, player in this.GetPlayerList()
+		{
+			If (UUID = player.UUID)
+			{
+				name := player.name
+				break
+			}
+		}
+		
+		If (name = "") {
+			tmp := Temp . "\UsernameDownload.tmp"
+			FileDelete, % tmp
+			URLDownloadToFile, % "https://minecraft-techworld.com/admin/api/uuid?action=username&uuid=" . UUID, % tmp
+			
+			FileRead, temptxt, % tmp
+			jsn := SubStr(temptxt, v := InStr(temptxt, "{"), InStr(temptxt, "}",,-1) - v)
+			inf := JSON.Load(jsn)
+			If not inf.success
+				throw Exception(inf.error)
+			name := inf.output
+		}
+		return name
+	}
+	
+	JSONMakeBoolean(obj, key, value, inf) {
+		If !(key = "bypassesPlayerLimit")
+			return value
+		inf.DoRaw := true
+		return value ? "true" : "false"
+	}
+	class Player {
+		__New(UUID, parent) {
+			this.UUID := UUID
+			this.raw := parent.Raw
+			this.parent := parent
+		}
+		
+		EditWindow() {
+			If this.WindowIsShown
+				return
+			this.WindowIsShown := true
+			lgui := new GUI("+alwaysOnTop", this.name)
+			lgui.Font("s" . FontNormal)
+			
+			lgui.add("Edit", "section w" . FontNormal * 15)
+			v := this.OpStatus
+			oplvlctrl := lgui.add("UpDown","range0-4", v ? v.level : 0)
+			lgui.add("Text", "ys", "Operator Level")
+			v := this.BanStats
+			banctrl := lgui.add("CheckBox","xs section Checked" . IsObject(v), "Ban")
+			reasonctrl := lgui.add("Edit","xs section", IsObject(v) ? v.reason : "Banned by an Operator.")
+			lgui.add("text","ys","Ban Reason")
+			
+			wlctrl := lgui.add("Checkbox","xs section Checked" . this.IsWhiteListed, "Whitelist")
+			lgui.add("Button", "xs section w" . FontNormal * 10, "OK").OnEvent(ObjBindMethod(this, "EW_Close", true), "Normal")
+			lgui.add("Button", "ys w" . FontNormal * 10, "Cancel").OnEvent(ObjBindMethod(this, "EW_Close", false), "normal")
+			lgui.add("Button", "ys w" . FontNormal * 10, "Reset Player").OnEvent(ObjBindMethod(this, "EW_Reset"), "normal")
+			
+			
+			lgui.NoClose := true
+			this.EW_DoSave := false
+			lgui.OnEvent(ObjBindMethod(this, "EW_Close", false), "Close")
+			lgui.show()
+			Critical, off
+			While this.WindowIsShown
+			{
+				sleep, 50
+			}
+			If this.EW_DoSave {
+				this.Ban(not banctrl.Contents, reasonctrl.Contents)
+				this.WhiteList(not wlctrl.Contents)
+				this.OP(oplvlctrl.Contents = 0, oplvlctrl.Contents)
+				
+				this.parent.LV_Refresh()
+			}
+			lgui.destroy()
+		}
+		EW_Close(doSave, Event := "") {
+			this.EW_DoSave := doSave
+			this.WindowIsShown := false
+		}
+		EW_Reset(Event := "") {
+			MsgBox, 262452, Reset player, This will delete the player's items`, location`, etc. This cannot be undone. Continue?
+			IfMsgBox, Yes
+			{
+				UN := this.parent.server.uniquename
+				FileDelete, % DefaultDir . "\" . UN . "\world\advancements\" . this.uuid . ".json"
+				FileDelete, % DefaultDir . "\" . UN . "\world\stats\"        . this.uuid . ".json"
+				FileDelete, % DefaultDir . "\" . UN . "\world\playerdata\"   . this.uuid . ".dat"
+				this.BanStats := ""
+				this.IsWhiteListed := false
+				this.OpStatus := ""
+				
+				For index, player in this.raw.users
+				{
+					If (this.uuid = player.uuid) {
+						this.raw.users.RemoveAt(index)
+						break
+					}
+				}
+				this.parent.LV_Refresh()
+				this.WindowIsShown := false
+			}
+		}
+		
+		Ban(un := false, reason := "Banned by an operator.") {
+			If un {
+				this.BanStats := ""
+			}
+			else {
+				this.BanStats := {created : ""
+								, expires : "forever"
+								, name    : this.Name
+								, reason  : reason
+								, source  : "Server"
+								, uuid    : this.uuid}
+			}
+		}
+		WhiteList(un := false) {
+			this.IsWhiteListed := not un
+		}
+		OP(un := false, level := 4, bpl := false) {
+			If un
+				this.OpStatus := ""
+			else
+				this.OpStatus := {level : level, bypassesplayerlimit : bpl}
+		}
+		
+		GetStatus() {
+			stat := []
+			l_ban := this.BanStats
+			If l_ban {
+				stat.Clear := "Banned"
+				stat.inf := l_ban.reason
+				return stat
+			}
+			Else if this.parent.server.ctrls["white-list"].Contents and not this.IsWhiteListed {
+				return {Clear : "Banned", inf : "Not on WhiteList"}
+			}
+			Else if (op := this.OpStatus) {
+				lim := op.bypassesplayerlimit ? "Ignores Player Limit" : "Abides by Player Limit"
+				return {Clear : "Level " . op.level . " Operator", inf : lim}
+			}
+			else
+			{
+				return {Clear : "Player", inf : ""}
+			}
+		}
+		Name[] {
+			get {
+				For index, player in this.raw.users
+				{
+					If (player.uuid = this.uuid)
+						return player.name
+				}
+			}
+			set {
+				
+			}
+		}
+		BanStats[] {
+			get {
+				Ban := ""
+				For index, banplayer in this.raw.Banned_Players
+				{
+					If (banplayer.uuid = this.uuid)
+					{
+						Ban := banplayer
+						break
+					}
+				}
+				return Ban
+			}
+			set {
+				addToList := true
+				For index, banplayer in this.raw.Banned_Players
+				{
+					If (banplayer.uuid = this.uuid)
+					{
+						addToList := false
+						If value
+						{
+							this.raw.banned_Players[index] := value
+						}
+						else
+						{
+							this.raw.Banned_Players.RemoveAt(index)
+						}
+						break
+					}
+				}
+				If addToList and value {
+					this.raw.Banned_Players.Push(value)
+				}
+			}
+		}
+		IsWhiteListed[] {
+			get {
+				For index, player in this.raw.WhiteList
+				{
+					If (player.UUID = this.UUID) {
+						return true
+					}
+				}
+				return false
+			}
+			set {
+				addToList := true
+				For index, player in this.raw.WhiteList
+				{
+					If (player.UUID = this.UUID)
+					{
+						addToList := false
+						If not value {
+							this.raw.WhiteList.RemoveAt(index)
+						}
+						break
+					}
+				}
+				If value and addToList {
+					this.raw.WhiteList.Push({name : this.name, uuid : this.uuid})
+				}
+			}
+		}
+		OpStatus[] {
+			get {
+				For index, player in this.raw.Ops
+				{
+					If (player.UUID = this.UUID) {
+						return {level : player.level, bypassesplayerlimit : player.bypassesplayerlimit}
+					}
+				}
+				return ""
+			}
+			set {
+				addToList := true
+				For index, player in this.raw.OPs
+				{
+					If (player.UUID = this.UUID) {
+						addToList := false
+						If value {
+							this.raw.OPs[index] := {level : value.level
+								, bypassesplayerlimit : value.bypassesplayerlimit
+								, name : this.name
+								, uuid : this.uuid}
+						}
+						else {
+							this.raw.OPs.RemoveAt(index)
+						}
+						break
+					}
+				}
+				If addToList and value {
+					this.raw.OPs.Push({level : value.level
+						, bypassesplayerlimit : value.bypassesplayerlimit
+						, name : this.name
+						, uuid : this.uuid})
+				}
+			}
+		}
+	}
 }
 
 Class PluginsGUI { ;-----------------Plugins Window ---
@@ -1501,33 +2164,32 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 		this.Strictrl := this.gui.add("CheckBox","ys","Strike-thru" )
 		this.Corrctrl := this.gui.add("CheckBox",    ,"Corrupted"   )
 		
-		this.editor.OnEvent(MotdMaker.EditIt.Bind(this))
-		this.renderer := this.gui.add("ActiveX","xs section h60 w450","shell.Explorer").Contents
+		this.editor.OnEvent(ObjBindMethod(this, "EditIt"), "normal")
+		
+		this.picturectrl := this.gui.add("picture", "xs section h64 w64", this.GetPicture(uniquename))
+		xx := this.picturectrl.x + 64, xx := xx ? xx : 64
+		yy := this.picturectrl.y, yy := yy ? yy : "120"
+		this.renderer := this.gui.add("ActiveX","x" . xx . " y" . yy . " h64 w386","shell.Explorer").Contents
+		this.gui.add("Button", "xs section", "Change Picture").OnEvent(ObjBindMethod(this, "SetPicture", uniquename), "Normal")
+		this.gui.add("text","ys", "(Must be a 64x64 pixel .PNG file)")
 		this.renderer.silent := true
-		this.motd := this.gui.add("Edit","r1 w450",initial)
-		this.motd.OnEvent(MotdMaker.Render_Pre.Bind(this),"Normal")
+		this.motd := {}
+		this.motd.Contents := initial
 		this.parseraw()
 		this.render()
 	}
 	EditIt() {
 		Critical
-		If not this.motd.focus
-			this.motd.Contents := StrReplace(StrReplace("&r" . this.editor.Contents,"`n","\n&r"),"&","\u00A7")
+		this.motd.Contents := StrReplace(StrReplace("&r" . this.editor.Contents,"`n","\n&r"),"&","\u00A7")
+		this.Render()
 	}
 	
-	Render_Pre(Event := "") {
-		Critical
-		If this.motd.Focus
-		{
-			this.parseraw()
-		}
-		Critical
-		this.render()
-	}
-	
-	Render(Event := "") {
 		
-		linelist := StrSplit(this.motd.Contents, "\n")
+	Render(Event := "", online := true) {
+		If online
+			linelist := StrSplit(this.motd.Contents, "\n")
+		else
+			linelist := ["\u00A7cCan't connect to server",""]
 		Line_1 := this.ConvertToHtml(linelist[1])
 		Line_2 := this.ConvertToHtml(linelist[2])
 		html =
@@ -1541,12 +2203,20 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 								  src: url('mcFont.eot?#iefix') format('embedded-opentype'), /* IE6-IE8 */
 									   }
 						</style>
+						<style>
+							span.normal {
+								line-height: 1.1;
+							}
+						</style>
 					</head>
-					<body style="background-image: Url('Motd_Background.jpg'); font-family: mcFont; font-size:90`%; color: DarkGray">
-							<span style="color: black"></span>%Line_1%
+					<body style="background-image: Url('Motd_Background.jpg'); font-family: mcFont; font-size:80`%; color: DarkGray">
+						<span class="normal">
+							<span style="color: white">A Minecraft Server</span>
 							<br>
-							<span style="color: black"></span>%Line_2%
+							%Line_1%
 							</br>
+							%Line_2%
+						</span>
 					</body>
 				</html>
 			)
@@ -1554,7 +2224,29 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 		FileAppend, % html, % this.temphtml
 		this.renderer.Navigate("file:///" . this.temphtml)
 	}
-	
+	GetPicture(uniquename) {
+		pth := DefaultDir . "\" . uniquename . "\server-icon.png"
+		If FileExist(pth) {
+			return pth
+		}
+		FileCopy, % DefaultDir . "\server-icon.png", % pth
+		return pth
+	}
+	SetPicture(uniquename, Event := "") {
+		pth := DefaultDir . "\" . uniquename . "\server-icon.png"
+		FileSelectFile, newpic,,, Change Picture, 64x64 PNG files (*.png)
+		If Errorlevel
+			return
+		
+		Loop, Files, % newpic
+		{
+			If (A_LoopFileExt = "png") {
+				FileCopy, % A_LoopFileFullPath, % pth, 1
+				this.PictureCtrl.Contents := pth
+				break
+			}
+		}
+	}
 	parseraw() {
 		v := StrReplace(StrReplace(this.motd.Contents,"\u00A7","&"),"\n&r","`n")
 		v := StrReplace(v, "\n","`n")
@@ -1566,8 +2258,17 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 		l_html_a := ""
 		
 		stree := []
-		For ind_b, stext in StrSplit("8" . motd,"\u00A7")
+		For ind_b, ascii in StrSplit("8" . motd,"\u00A7")
 		{
+			For ind_c, val in StrSplit(ascii, "\u")
+			{
+				If (A_Index = 1)
+					stext := val
+				Else {
+					stext := stext . "$" . SubStr(val, 5)
+				}
+			}
+			
 			l_style := SubStr(stext, 1, 1)
 			l_text := StrReplace(SubStr(stext, 2), A_Space, "<span style=""color:black"">_</span>") ;renders spaces as invisible _'s
 		;	MsgBox,,,% l_style . l_text
@@ -1711,6 +2412,7 @@ class MotdMaker {  ;-----------------Motd Maker    ----
 		this.CorrCtrl.Enabled := v
 		this.editor.Enabled   := v
 		this.motd.Enabled     := v
+		this.Render("", v)
 	}
 	
 	__Delete() {
@@ -1840,12 +2542,22 @@ UniqueFolderCreate(DesiredName := "Server") {
 
 
 RunTer(command, windowtitle, startingdir := "") {
-	run, cmd.exe /c %command%, %startingdir%,, cmdPID
+	static tmpcount := 0
+	
+	batch =
+		(Ltrim
+		@echo off
+		title %windowtitle%
+		%command%
+		)
+	tmp := Temp . "\RunTer_" . tmpcount++ . ".bat"
+	FileDelete, % tmp
+	FileAppend, % batch, % tmp
+	run, cmd.exe /c %tmp%, %startingdir%,, cmdPID
 	
 	WinWait, ahk_pid %cmdPID%
 	winHWND := WinExist()
 	WinBlur(100)
-	WinSetTitle, %windowtitle%
 	return winHWND
 }
 
@@ -1872,7 +2584,10 @@ GetFontDefault() {
 	return v
 }
 
-
+Clear_Temp_Files() {
+	FileRemoveDir, % Temp, 1
+	FileDelete, % DefaultDir . "\*_MOTD.html"
+}
 }
 
 class eulaWindow { ;-----------------EULA-----------------------
@@ -1964,10 +2679,13 @@ class Spigot { ;    -----------------Spigot installation
 }
 
 { ;----------------------------------Update---------------
-UpdateServer(version := "latest") {
+UpdateServer(version := "latest", Force := true) {
+	
 	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
 		filecreatedir, %DefaultDir%\BuildTools
 	}
+	FileDelete, % DefaultDir . "\BuildTools\spigot-" . version . ".jar"
+	
 	UpdateServerRetry:
 	try {
 		runwait, curl -z BuildTools.jar -o BuildTools.jar https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar, %DefaultDir%\BuildTools
@@ -1980,9 +2698,10 @@ UpdateServer(version := "latest") {
 		}
 		return false
 	}
+	FileDelete, %DefaultDir%\BuildTools\BuildTools.log.txt
 	try {
-		runwait, %comspec% /c java -jar BuildTools.jar --rev %version%, %DefaultDir%\BuildTools
-		
+		ForceArg := Force ? "" : "--compile-if-changed"
+		runwait, %comspec% /c java -jar BuildTools.jar %ForceArg% --rev %version%, %DefaultDir%\BuildTools
 	}
 	catch {
 		msgbox, 0x15, QuickServer error, Install failed. Try reinstalling Java at https://java.com/en/download/
@@ -2004,24 +2723,39 @@ BuildTools_getServerFile(version) {
 	FileRead, LogFile, %DefaultDir%\BuildTools\BuildTools.log.txt
 	FileNamePos := 15 + Instr(LogFile, "  - Saved as .\", 0)
 	ServerFile := StrReplace(StrReplace(SubStr(LogFile, FileNamePos), "`n"), "`r")
+	
 	Serverinfo := {}
 	Serverinfo.version := StrReplace(StrReplace(ServerFile, "spigot-"), ".jar")        ; spigot-1.16.1.jar becomes 1.16.1
 	Serverinfo.confirmed := false
-	Serverinfo.isLatest := true
-	IfExist,%DefaultDir%\BuildTools\%ServerFile%
-	{
-		Serverinfo.confirmed := true
-	}
-	Else IfExist, %DefaultDir%\BuildTools\spigot-%version%.jar
+	
+	
+	attribs := FileExist(DefaultDir . "\BuildTools\spigot-" . version . ".jar")
+	If attribs and !(version = "latest")
 	{
 		Serverinfo.confirmed := true
 		ServerFile = spigot-%version%.jar
+		ServerFile.version := version
 	}
-	If not (version = "latest")
+	Else if FileExist(DefaultDir . "\BuildTools\spigot-" . Serverinfo.version . ".jar") and InstallationsWin.IsValidVersion(Serverinfo.version)
 	{
-		Serverinfo.isLatest := false
-		Serverinfo.version := version
+		Serverinfo.confirmed := true
 	}
+	
+	;IfExist,%DefaultDir%\BuildTools\%ServerFile%
+	;{
+	;	Serverinfo.confirmed := true
+	;}
+	;Else IfExist, %DefaultDir%\BuildTools\spigot-%version%.jar
+	;{
+	;	Serverinfo.confirmed := true
+	;	ServerFile = spigot-%version%.jar
+	;}
+	;If not (version = "latest")
+	;{
+	;	Serverinfo.isLatest := false
+	;	Serverinfo.version := version
+	;}
+	
 	Serverinfo.uniquename := DefaultDir . "\BuildTools\" . ServerFile
 	
 	return, Serverinfo
@@ -2035,7 +2769,6 @@ DownloadFailed(byref this) {
 	}
 	Else
 	{
-		this.UpdateThisServer()
 	}
 }
 }
@@ -2175,4 +2908,5 @@ CopyFilesAndFolders(SourcePattern, DestinationFolder, DoOverwrite = false)
 	return
 	#Include, %A_ScriptDir%\SelectFolderEx.ahk
 	#Include, %A_ScriptDir%\GuiObject.ahk
+	#Include, %A_ScriptDir%\JSON.ahk
 }
