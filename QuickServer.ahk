@@ -1,9 +1,9 @@
 { ;----------------------------------- Quick Modifications --------------
-  ;----------------------date := 1/18/2021  - 1
+  ;----------------------date := 1/18/2021  - 2
 global             DefaultDir := A_AppData "\.QuickServer"
 global                   Temp := A_Temp . "\.QuickServer"
 global Enable_CheckForUpdates := true
-                   defaultRAM := "1.5GB"
+				   defaultRAM := "1.5GB"
 global                  debug := false
 }
 
@@ -223,6 +223,8 @@ BuildServerWindow() {
 	global MainGui
 	MainGui := new Gui(, "QuickServer")
 	MainGui.Font("s" . FontNormal)
+	MainGui.Add("link",,"<a href=""https://www.gofundme.com/f/keep-quickservermc-up-to-date-with-new-features?utm_source=customer&utm_medium=copy_link&utm_campaign=p_cf+share-flow-1"">Donate Now</a>")
+	
 	LV_width := FontNormal * 50
 	Listctrl := MainGui.add("ListView", "altsubmit R15 w" . LV_width . " -Multi", "World|DateFormat|Uniquename|Date Modified")
 
@@ -256,6 +258,7 @@ BuildServerWindow() {
 	MainGui.OnEvent("SelectServer_DropFiles", "DropFiles")
 	MainGui.show("Autosize Center")
 	ChooseServerWindow()
+	mainbtns.Run.Focus := true
 }
 
 Class ServerLV_Menu {
@@ -2693,7 +2696,7 @@ class Tutorial {   ;-----------------Tutorial
 				( LTrim
 				Dear Player,
 				
-				It seems like you are growing your server!
+				It seems like you are enjoying QuickServer!
 				I'm glad to see that you are enjoying QuickServer.
 				
 				Please consider donating because it really helps me keep this software going. 
@@ -2701,7 +2704,7 @@ class Tutorial {   ;-----------------Tutorial
 				Thanks!
 				~Developer
 				
-				<a>Donate Now</a>
+				<a href="https://www.gofundme.com/f/keep-quickservermc-up-to-date-with-new-features?utm_source=customer&utm_medium=copy_link&utm_campaign=p_cf+share-flow-1">Donate Now</a>
 				
 				)
 			return v
