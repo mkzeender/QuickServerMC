@@ -1,9 +1,9 @@
 { ;----------------------------------- Quick Modifications --------------
-
+  ;----------------------date := 1/18/2021  - 1
 global             DefaultDir := A_AppData "\.QuickServer"
-global                Temp := A_Temp . "\.QuickServer"
+global                   Temp := A_Temp . "\.QuickServer"
 global Enable_CheckForUpdates := true
-global             defaultRAM := "1.5GB"
+                   defaultRAM := "1.5GB"
 global                  debug := false
 }
 
@@ -239,12 +239,12 @@ BuildServerWindow() {
 	global mainbtns := {}
 	MainGui.add("text","ym")
 	MainGui.Font("s" . FontLarge)
-	Maingui.add("Button","w" . FontLarge * 15 , "New World").OnEvent("Button_Main_NewServer","Normal")
-	mainbtns.Run := Maingui.add("Button","disabled w" . FontLarge * 15,"Open World")
+	Maingui.add("Button","w" . FontLarge * 15 , "Create New World").OnEvent("Button_Main_NewServer","Normal")
+	mainbtns.Run := Maingui.add("Button","disabled w" . FontLarge * 15, "Play Selected World")
 	mainbtns.Run.OnEvent("SelectServer_Run","Normal")
-	mainbtns.Settings := Maingui.add("Button","disabled w" . FontLarge * 15, "World Properties")
+	mainbtns.Settings := Maingui.add("Button","disabled w" . FontLarge * 15, "Edit World")
 	mainbtns.Settings.OnEvent("SelectServer_Settings","Normal")
-	Maingui.add("Button","w" . FontLarge * 15, "Import World").OnEvent("SelectServer_Import","Normal")
+	Maingui.add("Button","w" . FontLarge * 15, "Import...").OnEvent("SelectServer_Import","Normal")
 	Maingui.add("Link",, "<a>Restore a backup</a>").OnEvent("SelectServer_Restore","Normal")
 	Maingui.add("Link",, "<a>Help! Every time I try to`ncreate a new server it fails</a>").OnEvent("ReInstall","Normal")
 	
@@ -261,14 +261,13 @@ BuildServerWindow() {
 Class ServerLV_Menu {
 	Build() {
 		funcobj := ServerLV_Menu.ChooseItem.Bind(this)
-		Menu, ServerLV_Menu, Add,Open,%funcobj%
-		Menu, ServerLV_Menu, Default, Open
-		Menu, ServerLV_Menu, Add, Backup,%funcobj%
+		Menu, ServerLV_Menu, Add,Play,%funcobj%
+		Menu, ServerLV_Menu, Default, Play
+		Menu, ServerLV_Menu, Add, Edit, %funcobj%
 		Menu, ServerLV_Menu, Add
+		Menu, ServerLV_Menu, Add, Backup,%funcobj%
 		Menu, ServerLV_Menu, Add, Duplicate,%funcobj%
 		Menu, ServerLV_Menu, Add, Delete,%funcobj%
-		Menu, ServerLV_Menu, Add
-		Menu, ServerLV_Menu, Add,Properties,%funcobj%
 		Menu, ServerLV_amb, Add, New World, %funcobj%
 		Menu, ServerLV_amb, Add, Import World, %funcobj%
 		Menu, ServerLV_amb, Add, Restore Backup, %funcobj%
@@ -286,7 +285,7 @@ Class ServerLV_Menu {
 	
 	ChooseItem(ItemName,ItemPos,MenuName) {
 		  (ItemName = "Open")			? SelectServer_Run()
-		: (ItemName = "Properties") 	? SelectServer_Settings()
+		: (ItemName = "Edit") 	        ? SelectServer_Settings()
 		: (ItemName = "Duplicate")		? this.Duplicate()
 		: (ItemName = "Backup")			? this.Backup()
 		: (ItemName = "New World")		? Button_Main_NewServer()
@@ -354,6 +353,9 @@ SelectServer_Default(Event := "") {
 }
 
 Button_Main_NewServer() {
+	new NewServerWin
+}
+Button_Main_NewServer_OLD() {
 
 	CreatedServer := new Server("Server")
 	If not CreatedServer.create()
@@ -450,6 +452,145 @@ GetServerList() {
 
 }
 
+Class NewServerWin {
+	ctrls := {}
+	props := {}
+	Finished := false
+	DoCancel := false
+	__New() {
+		this.gui := g := new gui(, "Create new world")
+		g.Font("s" . FontLarge)
+		this.tab := g.add("Tab3",,"<--| | ")
+		
+		g.tab(1)
+		g.add("Text",,"World Name")
+		this.ctrls.NAME := g.add("Edit","w" . FontLarge * 30, "New World")
+		
+		g.add("Text","section","Gamemode:")
+		this.ctrls.gamemode := g.add("DropDownList","w" . FontLarge * 15,"survival|creative|adventure|spectator")
+		this.ctrls.gamemode.ChooseString("survival")
+		
+		this.ctrls.cheats := g.add("CheckBox","Check3 CheckedGray", "Allow Cheats")
+		
+		g.add("text","ys", "Difficulty:")
+		this.ctrls.difficulty := g.add("DropDownList", "w" . FontLarge * 15, "peaceful|easy|normal|hard|hardcore|UHC")
+		this.ctrls.difficulty.ChooseString("normal")
+		
+		g.add("Button", "xs section w" . FontLarge * 15, "Datapacks/Plugins").OnEvent(ObjBindMethod(this.tab, "Choose", 3), "normal")
+		
+		g.add("Button","ys w" . FontLarge * 15, "More World Options...").OnEvent(ObjBindMethod(this.tab, "Choose", 2), "Normal")
+		
+		
+		
+		
+		
+		g.tab(2)
+		g.Font("s" . FontLarge)
+		g.Add("text",, "Seed:")
+		this.ctrls["level-seed"] := g.Add("Edit", "w" . FontLarge * 30)
+		this.ctrls["generate-structures"] := g.Add("CheckBox","section Checked" . true . " w" . FontLarge * 15, "Generate Structures")
+		g.add("Text","ys","World Type:")
+		this.ctrls["level-type"] := g.add("ComboBox", "w" . FontLarge * 15,"default|flat|largeBiomes|amplified|buffet")
+		this.ctrls["level-type"].ChooseString("default")
+		this.ctrls["level-type"].OnEvent(ObjBindMethod(this, "Change_Level_Type"), "Normal")
+		g.add("link","disabled","Customize: (generator code)")
+		this.ctrls["generator-settings"] := g.add("Edit","disabled w" . FontLarge * 15, this.props["generator-settings"])
+		
+		
+		g.tab(3)
+		g.Font("s" FontNormal)
+		PluginMan := new PluginsGui(g, "plugins"  ,"tmp",false)
+		DatapkMan := new PluginsGui(g, "datapacks","tmp",false)
+		g.Font("s" FontLarge)
+		
+		
+		
+		g.tab()
+		g.add("Button","section", "Create New World").OnEvent(ObjBindMethod(this, "Create"), "Normal")
+		g.add("Button", "ys", "Cancel").OnEvent(ObjBindMethod(this, "Cancel"), "Normal")
+		g.OnEvent(ObjBindMethod(this, "Cancel"), "Close")
+		g.show()
+		While not this.Finished
+		{
+			sleep, 50
+		}
+		If this.DoCancel {
+			g.Destroy()
+			return ""
+		}
+		
+		
+		CreatedServer := new Server
+		CreatedServer.Create()
+		
+		CreatedServer.difficulty := this.ctrls.difficulty.Contents
+		CreatedServer.name       := this.ctrls.NAME.Contents
+		
+		CreatedServer.props["gamemode"]            := this.ctrls.gamemode.Contents
+		CreatedServer.props["level-seed"]          := this.ctrls["level-seed"].Contents
+		CreatedServer.props["generate-structures"] := String(this.ctrls["generate-structures"].Contents)
+		CreatedServer.props["level-type"]          := this.ctrls["level-type"].Text
+		CreatedServer.props["generator-settings"]  := this.ctrls["generator-settings"].Contents
+		
+		v := this.ctrls.cheats.Contents
+		this.doCheats := (v = -1) ? (this.props["gamemode"] != "survival") : v
+		
+		g.Destroy()
+		
+		PluginMan.uniquename := CreatedServer.uniquename
+		DatapkMan.uniquename := CreatedServer.uniquename
+		PluginMan.Save()
+		DatapkMan.Save()
+		
+		If this.doCheats
+		{
+			this.GetCheatsPerson(CreatedServer)
+		}
+			
+		CreatedServer.FlushProps()
+		ChooseServerWindow()
+		CreatedServer.start()
+	}
+	GetCheatsPerson(Server) {
+		cached := IniRead(DefaultDir . "\QuickServer.ini", "Cache", "CheatsUserName", "&")
+		InputBox, playername, Enable Cheats, Enter your username to enable cheats:,,,,,,,, % (cached = "&") ? "" : cached
+		If not playername or Errorlevel
+		{
+			this.doCheats := false
+			return
+		}
+		IniWrite(playername, DefaultDir . "\QuickServer.ini", "Cache", "CheatsUserName")
+		Try {
+			plwn := new PlayersWindow(Server,,true)
+			plwn.LoadPlayerList()
+			plwn.AddPlayer(playername).OP()
+			plwn.SavePlayerList()
+		}
+		Catch e {
+			If debug
+				throw e
+			else
+				MsgBox, 262160, Error, Could not find player
+		}
+		
+	}
+	
+	Change_Level_Type() {
+		v := this.ctrls["level-type"].Text
+		val := (v = "default") or (v = "largeBiomes") or (v = "amplified")
+		this.ctrls["generator-settings"].Enabled := not val
+		this.customizetxt.Enabled := not val
+	}
+	Cancel(Event := "") {
+		this.Finished := true
+		this.DoCancel := true
+	}
+	Create(Event := "") {
+		this.Finished := true
+	}
+	
+	
+}
 
 Class ImportServerWin {
 	static savesdir := A_AppData . "\.minecraft\saves"
@@ -857,7 +998,7 @@ class Server { ;---------------------Server-------------------------------------
 			txt := ""
 			For index, char in StrSplit(this.Name)
 			{
-				txt .= InStr("abcdefghijklmnopqrstuvwxyz0123456789 _-'.!", char) ? char : "_"
+				txt .= InStr("abcdefghijklmnopqrstuvwxyz0123456789 _-'.!", char) ? char : ""
 			}
 			return txt
 		}
@@ -881,6 +1022,7 @@ class Server { ;---------------------Server-------------------------------------
 	}
 	RAM[] {
 		get {
+			global DefaultRam
 			return IniRead(DefaultDir . "\QuickServer.ini", "QuickServer", "RAM", DefaultRam)
 		}
 		set {
@@ -905,6 +1047,14 @@ class Server { ;---------------------Server-------------------------------------
 		}
 		set {
 			IniWrite(value, this.uniquename . "\QuickServer.ini", "QuickServer", "NoGui")
+		}
+	}
+	BonusChest[] {
+		get {
+			return IniRead(this.uniquename . "\QuickServer.ini", "QuickServer", "BonusChest", false)
+		}
+		set {
+			IniWrite(value, this.uniquename . "\QuickServer.ini", "QuickServer", "BonusChest")
 		}
 	}
 	JarFile[] {
@@ -1019,9 +1169,7 @@ class Server { ;---------------------Server-------------------------------------
 		this.name := name
 		this.Upgrade()
 		this.props_init()
-		this.RAM := defaultRAM
 		this.DateModified := A_Now
-		v := this.EULAAgree
 		return true
 	}
 	
@@ -1030,12 +1178,11 @@ class Server { ;---------------------Server-------------------------------------
 		this.props["enable-command-block"] := "true"
 		this.props["level-name"]           := "world"
 		this.props["motd"]                 := "\u00A7rMade using \u00A7b\u00A7lQuickServerMC"
-		this.props["difficulty"]           := "normal"
 		this.props["spawn-protection"]     := "0"
 		this.FlushProps()
 	}
 	
-	start(Event := "") {
+	start(Event := "", force := false) {
 		If (Event.EventType = "Normal")
 		{
 			this.Save(Event)
@@ -1054,7 +1201,7 @@ class Server { ;---------------------Server-------------------------------------
 		Critical
 		this.about_to_run := true
 		CurrentlyRunningServer()
-		If IsObject(CurrentlyRunningServer())
+		If IsObject(CurrentlyRunningServer()) and not force
 		{
 			If (CurrentlyRunningServer.uniquename != this.uniquename)
 			{
@@ -1065,11 +1212,31 @@ class Server { ;---------------------Server-------------------------------------
 		CurrentlyRunningServer(this)
 		
 		nogui := (!debug and this.NoGui) ? "nogui" : ""
-		
 		RAM := Round(StrReplace(this.RAM, "GB") * 1024)
-		cmd = java -Xmx%RAM%M -Xms%RAM%M -jar "%JarFile%" %nogui% 2> errorlog.log
+		RamInit := (RAM < 512) ? RAM : (RAM / 3 > 512) ? Round(RAM / 3) : 512
+		
+		batch = 
+		( LTrim
+			:Go
+			java -Xmx%RAM%M -Xms%RAMInit%M -jar "%JarFile%" %nogui% 2> errorlog.log
+			echo. 
+			echo. 
+			echo. 
+			echo Server Stopped
+			echo Enter 'Start' to restart the server, 'Log' to view the server log, or 'Exit' to exit.
+			:cmdLoop
+			set /p doCommand=">"
+			If `%doCommand`%==Start goto Go
+			If `%doCommand`%==start goto Go
+			If `%doCommand`%==Log notepad "logs\latest.log"
+			If `%doCommand`%==log notepad "logs\latest.log"
+			If `%doCommand`%==Log goto cmdLoop
+			If `%doCommand`%==log goto cmdLoop
+			`%doCommand`%
+			goto cmdLoop
+		)
 		try FileDelete, % this.uniquename . "\errorlog.log"
-		this.WinID := RunTer(cmd, this.nicename, this.uniquename)
+		this.WinID := RunTer(batch, this.NiceName " - Minecraft Server " . this.version, this.uniquename)
 		this.DateModified := A_Now
 		(new Tutorial.Console).Show()
 		this.about_to_run := false
@@ -1078,18 +1245,17 @@ class Server { ;---------------------Server-------------------------------------
 		sleep, 2000
 		FileRead,errorlog, % this.uniquename . "\errorlog.log"
 		if InStr(errorlog,"Outdated") {
-			MsgBox, 52, Outdated Server, This server needs to be updated. Would you like to update it now?`nThe server will start in 20 seconds., 16
-			IfMsgBox, Yes
-			{
-				this.Update()
-				return false
-			}
-			IfMsgBox, Cancel
-			{
-				return false
-			}
+			this.Stop()
+			try this.Update()
+			this.Start(, true)
 		}
 		
+	}
+	Stop() {
+		If not this.WinID
+			return
+		WinClose, % "ahk_id " . this.WinID
+		CurrentlyRunningServer("")
 	}
 	
 	IsRunning[] {
@@ -1108,21 +1274,23 @@ class Server { ;---------------------Server-------------------------------------
 	
 	Settings() { ;  ------------------Settings---------------
 		this.LoadProps()
-		
-		Lgui := new Gui(,"Server Properties")
-		this.SettingsWin := Lgui
-		Lgui.OnEvent(Server.Save.Bind(this),"Close")
-		Lgui.OnEvent(Server.SettingModify.Bind(this),"Normal")
-		Lgui.font("s" . FontLarge)
-		this.ctrlprop["name"] := Lgui.add("Edit","w" . FontNormal * 70,this.name)
-		Lgui.font("s" . FontNormal)
-		
-		tab := Lgui.Add("Tab3","Choose1"
-			, "File|Status|Gameplay|World Generation|Plugins/Datapacks|Resource Pack|Security|Players|Performance")
-		tab.OnEvent(Server.TabChange.Bind(this))
+		{ ; <Setup>
+			Lgui := new Gui(,"Server Properties")
+			this.SettingsWin := Lgui
+			Lgui.OnEvent(Server.Save.Bind(this),"Close")
+			Lgui.OnEvent(Server.SettingModify.Bind(this),"Normal")
+			Lgui.font("s" . FontLarge)
+			this.ctrlprop["name"] := Lgui.add("Edit","w" . FontNormal * 70,this.name)
+			Lgui.font("s" . FontNormal)
+			
+			tab := Lgui.Add("Tab3","Choose1"
+				, "File|Status|Gameplay|Plugins/Datapacks|Resource Pack|Security|Players|Performance")
+			tab.OnEvent(Server.TabChange.Bind(this))
+			tabct := 0
+		}
 		
 		{ ; General
-		Lgui.Tab(1)
+		Lgui.Tab(++tabct)
 			Lgui.add("Button", "section w" . FontNormal * 15, "Start Server!").OnEvent(Server.Start.Bind(this))
 			
 			Lgui.add("text","xs", "`nCurrent version: " . this.version . "`nPress the Update button below to update the current version to the latest build`n(i.e. if the server says it is out of date)")
@@ -1142,7 +1310,7 @@ class Server { ;---------------------Server-------------------------------------
 		}
 		
 		{ ; Status
-			Lgui.Tab(2)
+			Lgui.Tab(++tabct)
 			this.ctrlprop["Enable_Status"] := Lgui.Add("ListBox","section r2","Online|Incognito")
 			this.ctrlprop["Enable_Status"].ChooseString(this.Enable_Status)
 			Lgui.add("text","ys","Status")
@@ -1157,7 +1325,7 @@ class Server { ;---------------------Server-------------------------------------
 		}
 		
 		{ ; Gameplay
-		Lgui.tab(3)
+		Lgui.tab(++tabct)
 						
 			this.ctrls["gamemode"] := Lgui.add("DropDownList","section", "survival|creative|adventure|spectator")
 			Lgui.add("text","ys", "Default Gamemode")
@@ -1188,39 +1356,25 @@ class Server { ;---------------------Server-------------------------------------
 				, "Automatically Spawn Animals")
 			this.ctrls["spawn-animals"].IsBool := true
 			
-
-		}
-		
-		{ ; World Generation
-		Lgui.tab(4)
-			Lgui.add("text","section","Some of these settings will only apply when generating the world for the first time`n")
-			this.ctrls["level-seed"] := Lgui.add("Edit","xs section",this.props["level-seed"])
-			Lgui.add("text","ys", "Custom World Seed")
-			
-			this.ctrls["level-type"] := Lgui.add("ComboBox", "xs section","default|flat|largeBiomes|amplified|buffet")
-			this.ctrls["level-type"].Text := this.props["level-type"]
-			Lgui.add("text", "ys", "Generation type -- If you are using a custom plugin as a generator put its ID here")
-			
-			this.ctrls["generator-settings"] := Lgui.add("Edit", "xs section", this.props["generator-settings"])
-			Lgui.add("Text","ys","Generator Settings -- Used to customize flat, buffet, and plugin-made worlds")
-			
 			this.ctrls["generate-structures"] := Lgui.add("CheckBox", "xs Checked" . Bool(this.props["generate-structures"])
-				, "Generate Structures")
+				, "Generate Structures (in new chunks)")
 			this.ctrls["generate-structures"].IsBool := true
 		}
 		
+		
 		{ ; Plugins and Datapacks
-		Lgui.tab(5)
+		Lgui.tab(++tabct)
 			Lgui.add("text",, "Easily import Spigot Plugins and datapacks!")
 			Lgui.Add("Link",,"You can find plugins at <a href=""https://www.spigotmc.org/resources/categories/spigot.4/?order=download_count""> www.spigotmc.org </a>`nOnce you have downloaded a plugin, click Import Plugins.`nIt is recommended that you backup your server before using plugins.")
 			Lgui.add("Button",, "Backup").OnEvent(Server.Backup.Bind(this))
 			
-			new PluginsGUI(Lgui, "Plugins", this.uniquename,false)
-			new PluginsGUI(Lgui, "Datapacks", this.uniquename,true)
+			this.PlGui_Plugins   := new PluginsGUI(Lgui, "Plugins", this.uniquename,false)
+			this.PlGui_Datapacks := new PluginsGUI(Lgui, "Datapacks", this.uniquename,true)
+			this.PlGui_Plugins.OnEdit   := ObjBindMethod(this, "SettingModify")
+			this.PlGui_Datapacks.OnEdit := ObjBindMethod(this, "SettingModify")
 		}
-			
 		{ ; Resource packs
-		Lgui.tab(6)
+		Lgui.tab(++tabct)
 			Lgui.add("text","section","Include a resource pack (texture pack) in this server`n`nPaste a valid downloadable link to a resource/texture pack")
 			this.ctrls["resource-pack"] := Lgui.Add("Edit","xs section w" . FontNormal * 60, this.props["resource-pack"])
 			Lgui.add("text","xs"," ")
@@ -1235,7 +1389,7 @@ class Server { ;---------------------Server-------------------------------------
 		}
 		
 		{ ; Security
-			Lgui.Tab(7)
+			Lgui.Tab(++tabct)
 			
 			Lgui.add("Edit","section")
 			this.ctrls["max-players"] := Lgui.add("UpDown",, this.props["max-players"])
@@ -1273,19 +1427,15 @@ class Server { ;---------------------Server-------------------------------------
 				, "Allow Command Blocks")
 			this.ctrls["enable-command-block"].IsBool := true
 			
-			
-			Lgui.add("Link","xs section","<a>Advanced Permissions</a>").OnEvent(Server.OpenFile.Bind(this, "permissions.yml"))
-			
-			
 		}
 		
 		{ ; Players
-			Lgui.Tab(8)
+			Lgui.Tab(++tabct)
 			this.PlayersWin := (new PlayersWindow(this, Lgui))
 		}
 		
 		{ ; Performance
-			Lgui.tab(9)
+			Lgui.tab(++tabct)
 			ww := this.ctrls["spawn-protection"].w
 			hh := this.ctrls["spawn-protection"].h
 			
@@ -1312,18 +1462,20 @@ class Server { ;---------------------Server-------------------------------------
 			this.Add_UpDown("max-build-height", "World Height (in blocks)", "Range1-256")
 		}
 		
-		Lgui.tab()
-		Lgui.Add("Button","section default w" . FontNormal * 10,"OK").OnEvent(Server.Save.Bind(this),"Normal")
-		Lgui.add("Button", "ys w" . FontNormal * 10, "Cancel").OnEvent(Server.ReloadSettings.Bind(this))
-		this.applybtn := Lgui.add("Button", "ys w" . FontNormal * 10,"Apply")
-		this.applybtn.OnEvent(Server.Apply.Bind(this),"Normal")
-		
-		
-		Lgui.add("Link", "ys", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
-		Lgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
-		sleep, -1
-		this.applybtn.Enabled := false
-		Lgui.show("Autosize Center")
+		{ ; <post>
+			Lgui.tab()
+			Lgui.Add("Button","section default w" . FontNormal * 10,"OK").OnEvent(Server.Save.Bind(this),"Normal")
+			Lgui.add("Button", "ys w" . FontNormal * 10, "Cancel").OnEvent(Server.ReloadSettings.Bind(this))
+			this.applybtn := Lgui.add("Button", "ys w" . FontNormal * 10,"Apply")
+			this.applybtn.OnEvent(Server.Apply.Bind(this),"Normal")
+			
+			
+			Lgui.add("Link", "ys", "<a>Advanced Settings</a>`n").OnEvent(Server.s_Advanced.Bind(this))
+			Lgui.add("Link", "ys", "<a> Open the Server Folder </a>").OnEvent(Server.s_OpenFolder.Bind(this))
+			sleep, -1
+			this.applybtn.Enabled := false
+			Lgui.show("Autosize Center")
+		}
 	}
 	
 	RAM_Ctrl_Get(UpDnToEdit := false, Event := "", doFocus := true) {
@@ -1346,8 +1498,8 @@ class Server { ;---------------------Server-------------------------------------
 		}
 		return v
 	}
-	SettingModify(Event) {
-		If InStr("Edit|CheckBox|UpDown|DropDownList|ListBox",Event.Control.Type) and (Event.Control.Type != "")
+	SettingModify(Event := "") {
+		If not Event or (InStr("Edit|CheckBox|UpDown|DropDownList|ListBox",Event.Control.Type) and (Event.Control.Type != ""))
 		{
 			this.applybtn.Enabled := true
 		}
@@ -1390,7 +1542,11 @@ class Server { ;---------------------Server-------------------------------------
 		this.FlushProps()
 		this.PlayersWin.SavePlayerList()
 		this.DateModified := A_Now
+		this.PlGui_Plugins.Save()
+		this.PlGui_Datapacks.Save()
+		
 		ChooseServerWindow()
+		
 		If (CurrentlyRunningServer().Uniquename = this.uniquename) {
 			MsgBox, 262208, Server Properties, Use the /reload command or restart the server to apply changes, 10
 		}
@@ -1660,11 +1816,11 @@ class InstallationsWin {
 }
 
 class PlayersWindow { ;--------------Players Window
-	__New(server, inclgui := "") {
+	__New(server, inclgui := "", NoRender := false) {
 		this.server := server
 		this.IsEmbedded := IsObject(inclgui)
-		this.gui := this.IsEmbedded ? inclgui : new Gui
-		this.Init()
+		this.gui := NoRender ? "" : this.IsEmbedded ? inclgui : new Gui
+		void := NoRender ? "" : this.Init()
 	}
 	Init() {
 		g := this.gui
@@ -1676,8 +1832,8 @@ class PlayersWindow { ;--------------Players Window
 		this.LV.LV_ModifyCol(3, FontNormal * 20)
 		this.LV.OnEvent(ObjBindMethod(this,"LV_EditPlayer"),"Normal")
 		
-		g.add("Button",, "Add Player ").OnEvent(ObjBindMethod(this,"LV_AddPlayer"), "Normal")
-		g.add("Button",, "Edit Player").OnEvent(ObjBindMethod(this,"LV_EditPlayer"), "Normal")
+		g.add("Button","section", "Add Player ").OnEvent(ObjBindMethod(this,"LV_AddPlayer"), "Normal")
+		g.add("Button","ys", "Edit Player").OnEvent(ObjBindMethod(this,"LV_EditPlayer"), "Normal")
 		
 		this.LoadPlayerList()
 		this.LV_Refresh()
@@ -1688,7 +1844,11 @@ class PlayersWindow { ;--------------Players Window
 		InputBox, plName, Add Player, Username:
 		If ErrorLevel
 			return
-		
+		player := this.AddPlayer(plName)
+		this.LV_Refresh()
+		player.EditWindow()
+	}
+	AddPlayer(plName) {
 		UUID := this.GetUUID(plName)
 		player := this.GetPlayer(UUID)
 		If (player = "")
@@ -1698,10 +1858,9 @@ class PlayersWindow { ;--------------Players Window
 			catch
 				name := plName
 			this.raw.users.Push({name : name, uuid : UUID})
-			player := new this.Player(UUID, this)
-			this.LV_Refresh()
+			return new this.Player(UUID, this)
+			
 		}
-		player.EditWindow()
 	}
 	LV_EditPlayer(Event) {
 		If (Event.GuiEvent = "Normal" or Event.GuiEvent = "RightClick") and (v := this.LV.LV_GetNext())
@@ -1749,7 +1908,7 @@ class PlayersWindow { ;--------------Players Window
 			FileRead, plistjsn, % DefaultDir "\" this.Server.uniquename "\usercache.json"
 		catch
 			plistjsn := "[]"
-		this.raw.users := JSON.Load(plistjsn)
+		this.raw.usercache := JSON.Load(plistjsn)
 		try 
 			FileRead, banlistjsn, % DefaultDir "\" this.Server.uniquename "\banned-players.json"
 		catch
@@ -1767,10 +1926,31 @@ class PlayersWindow { ;--------------Players Window
 			opsjsn := "[]"
 		this.raw.Ops := JSON.Load(opsjsn)
 		
+		try
+			FileRead, addedjsn, % DefaultDir "\" this.Server.uniquename "\QS_Player_List.json"
+		catch
+			addedjsn := "[]"
+		this.raw.users := JSON.Load(addedjsn)
+		
+		For indexa, playercache in this.raw.usercache
+		{
+			addToList := true
+			For indexb, player in this.raw.users
+			{
+				If (player.uuid = playercache.uuid)
+				{
+					player.name := playercache.name
+					addToList := false
+				}
+			}
+			If addToList {
+				this.raw.users.Push({uuid : playercache.uuid, name : playercache.name})
+			}
+		}
 	}
 	SavePlayerList(Event := "") {
-		FileMove, % DefaultDir "\" this.Server.uniquename "\usercache.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
-		FileAppend, % JSON.Dump(this.raw.users,,4), % DefaultDir "\" this.Server.uniquename "\usercache.json"
+		FileMove, % DefaultDir "\" this.Server.uniquename "\QS_Player_List.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
+		FileAppend, % JSON.Dump(this.raw.users,,4), % DefaultDir "\" this.Server.uniquename "\QS_Player_List.json"
 		FileMove, % DefaultDir "\" this.Server.uniquename "\banned-players.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
 		FileAppend, % JSON.Dump(this.raw.Banned_Players,,4), % DefaultDir "\" this.Server.uniquename "\banned-players.json"
 		FileMove, % DefaultDir "\" this.Server.uniquename "\whitelist.json", % DefaultDir "\" this.Server.uniquename "\*.json_old", true
@@ -1795,7 +1975,7 @@ class PlayersWindow { ;--------------Players Window
 		}
 		If (UUID = "") {
 			tmp := Temp . "\UUIDDownload.tmp"
-			FileDelete, % tmp
+			try FileDelete, % tmp
 			URLDownloadToFile, % "https://minecraft-techworld.com/admin/api/uuid?action=uuid&username=" . name, % tmp
 			
 			FileRead, temptxt, % tmp
@@ -1866,6 +2046,9 @@ class PlayersWindow { ;--------------Players Window
 			lgui.add("text","ys","Ban Reason")
 			
 			wlctrl := lgui.add("Checkbox","xs section Checked" . this.IsWhiteListed, "Whitelist")
+			
+			lgui.add("text", "xs section", "See the security tab for more info.")
+			
 			lgui.add("Button", "xs section w" . FontNormal * 10, "OK").OnEvent(ObjBindMethod(this, "EW_Close", true), "Normal")
 			lgui.add("Button", "ys w" . FontNormal * 10, "Cancel").OnEvent(ObjBindMethod(this, "EW_Close", false), "normal")
 			lgui.add("Button", "ys w" . FontNormal * 10, "Reset Player").OnEvent(ObjBindMethod(this, "EW_Reset"), "normal")
@@ -1886,6 +2069,7 @@ class PlayersWindow { ;--------------Players Window
 				this.OP(oplvlctrl.Contents = 0, oplvlctrl.Contents)
 				
 				this.parent.LV_Refresh()
+				this.parent.server.SettingModify()
 			}
 			lgui.destroy()
 		}
@@ -1949,7 +2133,7 @@ class PlayersWindow { ;--------------Players Window
 				return stat
 			}
 			Else if this.parent.server.ctrls["white-list"].Contents and not this.IsWhiteListed {
-				return {Clear : "Banned", inf : "Not on WhiteList"}
+				return {Clear : "Banned", inf : "You are not whitelisted on this server!"}
 			}
 			Else if (op := this.OpStatus) {
 				lim := op.bypassesplayerlimit ? "Ignores Player Limit" : "Abides by Player Limit"
@@ -2076,7 +2260,8 @@ class PlayersWindow { ;--------------Players Window
 }
 
 Class PluginsGUI { ;-----------------Plugins Window ---
-	
+	IsModified := false
+	EnableList := []
 	__New(Guiobj, type, uniquename,append := false) {
 		this.type := type
 		this.uniquename := uniquename
@@ -2090,8 +2275,10 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 		Loop, Files, % this.Folder . "\*" . this.ext
 		{
 			Options := " "
-			If FileExist(this.uniquename . "\" . this.Folder . "\" . A_LoopFileName)
+			If FileExist(this.uniquename . "\" . this.Folder . "\" . A_LoopFileName) {
 				Options .= "Check"
+				this.EnableList.Push(A_LoopFileName)
+			}
 			this.LV.LV_Add(Options, A_LoopFileName)
 		}
 		
@@ -2103,15 +2290,20 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 			return
 		
 		If Instr(Event.ErrorLevel, "C", true) {
-			critical, off
+			
 			this.LV.LV_GetText(PluginName, Event.EventInfo)
-			FileCreateDir, % this.uniquename . "\" . this.Folder
-			try FileCopy, % this.Folder . "\" . PluginName, % this.uniquename . "\" . this.Folder . "\" . PluginName
+			If not InArray(this.EnableList, PluginName)
+				this.EnableList.Push(PluginName)
+			this.IsModified := true
+			this.OnEdit.Call()
 		}
 		Else If InStr(Event.ErrorLevel, "c", true) {
-			critical, off
+			
 			this.LV.LV_GetText(PluginName, Event.EventInfo)
-			FileDelete, % this.uniquename . "\" . this.Folder . "\" . PluginName
+			If (pos := InArray(this.EnableList, PluginName))
+				this.EnableList.RemoveAt(pos)
+			this.IsModified := true
+			this.OnEdit.Call()
 		}
 		critical, off
 	}
@@ -2126,7 +2318,8 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 				Filename := StrSplit(file, "\").Pop()
 				this.LV.LV_Add("Check",Filename)
 				FileCopy, % file, % this.Folder . "\" . Filename
-				try FileCopy, % file, % this.uniquename . "\" . this.Folder . "\" . Filename
+				this.EnableList.Push(FileName)
+				this.IsModified := true
 			}
 		}
 		Else if (Event.EventType = "Normal")
@@ -2142,11 +2335,31 @@ Class PluginsGUI { ;-----------------Plugins Window ---
 				}
 				this.LV.LV_Add("Check",A_LoopField)
 				FileCopy, % Container . "\" . A_LoopField, % this.Folder . "\" . A_LoopField
-				try FileCopy, % this.Folder . "\" . A_LoopField, % this.uniquename . "\" . this.Folder . "\" . A_LoopField
+				this.EnableList.Push(A_LoopField)
+				this.IsModified := true
 			}
 		}
 	}
-		
+	
+	Save() {
+		If not this.IsModified
+			return
+		FileCreateDir, % DefaultDir . "\" . this.uniquename . "\" . this.Folder
+		Loop, Files, % DefaultDir . "\" . this.Folder . "\*.*"
+		{
+			file := DefaultDir . "\" . this.uniquename . "\" . this.Folder . "\" . A_LoopFileName
+			Enabled := InArray(this.EnableList, A_LoopFileName)
+			WasEnabled := FileExist(file)
+			If Enabled and not WasEnabled
+			{
+				try FileCopy, % A_LoopFilePath, % file
+			}
+			Else If not Enabled and WasEnabled
+			{
+				FileDelete, % file
+			}
+		}
+	}
 }
 
 class MotdMaker {  ;-----------------Motd Maker    ----
@@ -2541,7 +2754,7 @@ UniqueFolderCreate(DesiredName := "Server") {
 }
 
 
-RunTer(command, windowtitle, startingdir := "") {
+RunTer(command, windowtitle, startingdir := "", wait := false, minmaxhide := "") {
 	static tmpcount := 0
 	
 	batch =
@@ -2551,13 +2764,18 @@ RunTer(command, windowtitle, startingdir := "") {
 		%command%
 		)
 	tmp := Temp . "\RunTer_" . tmpcount++ . ".bat"
-	FileDelete, % tmp
+	try FileDelete, % tmp
 	FileAppend, % batch, % tmp
-	run, cmd.exe /c %tmp%, %startingdir%,, cmdPID
+	If wait
+	{
+		runwait, cmd.exe /c %tmp%, %startingdir%,%minmaxhide%, cmdPID
+		return 0
+	}
+	run, cmd.exe /c %tmp%, %startingdir%,%minmaxhide%, cmdPID
 	
-	WinWait, ahk_pid %cmdPID%
+	WinWait, ahk_pid %cmdPID%,,3
 	winHWND := WinExist()
-	WinBlur(100)
+	try WinBlur(100)
 	return winHWND
 }
 
@@ -2582,6 +2800,15 @@ GetFontDefault() {
 	v.Normal := Round(ScreenSize * 10 / 1080)
 	v.Large := Round(ScreenSize * 13 / 1080)
 	return v
+}
+
+InArray(array, value) {
+	For index, val in array
+	{
+		If (val = value)
+			return index
+	}
+	return 0
 }
 
 Clear_Temp_Files() {
@@ -2684,26 +2911,24 @@ UpdateServer(version := "latest", Force := true) {
 	if not InStr(FileExist(DefaultDir . "\BuildTools"), "D") {
 		filecreatedir, %DefaultDir%\BuildTools
 	}
-	FileDelete, % DefaultDir . "\BuildTools\spigot-" . version . ".jar"
+	try FileDelete, % DefaultDir . "\BuildTools\spigot-" . version . ".jar"
 	
 	UpdateServerRetry:
-	try {
-		runwait, curl -z BuildTools.jar -o BuildTools.jar https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar, %DefaultDir%\BuildTools
-	}
-	catch {
-		msgbox, 0x15, QuickServer, Error. If you see this, try downloading and installing curl at https://curl.haxx.se/windows/ 
-		Ifmsgbox, Retry
-		{
-			goto UpdateServerRetry
-		}
-		return false
-	}
-	FileDelete, %DefaultDir%\BuildTools\BuildTools.log.txt
+	;try {
+	;	runwait, curl -z BuildTools.jar -o BuildTools.jar https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar, %DefaultDir%\BuildTools
+	;}
+	SplashTextOn,,110, Installing..., Installing Spigot for Minecraft.`nThis may take several minutes...
+	URLDownloadToFile
+		,https://hub.spigotmc.org/jenkins/job/BuildTools/lastSuccessfulBuild/artifact/target/BuildTools.jar
+		, %DefaultDir%\BuildTools\BuildTools.jar
+		
+	try FileDelete, %DefaultDir%\BuildTools\BuildTools.log.txt
 	try {
 		ForceArg := Force ? "" : "--compile-if-changed"
 		runwait, %comspec% /c java -jar BuildTools.jar %ForceArg% --rev %version%, %DefaultDir%\BuildTools
 	}
 	catch {
+		SplashTextOff
 		msgbox, 0x15, QuickServer error, Install failed. Try reinstalling Java at https://java.com/en/download/
 		Ifmsgbox, Retry
 		{
@@ -2711,6 +2936,7 @@ UpdateServer(version := "latest", Force := true) {
 		}
 		return false
 	}
+	SplashTextOff
 	ServerFile := BuildTools_getServerFile(version)
 	return ServerFile
 }
